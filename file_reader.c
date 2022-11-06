@@ -2,24 +2,85 @@
 #include "tested_declarations.h"
 #include "rdebug.h"
 
+#include <stdlib.h>
+#include <errno.h>
+
 DISK* disk_open_from_file(const char* volume_file_name)
 {
-    (void)volume_file_name;
-    return NULL;
+    if (volume_file_name == NULL)
+    {
+        errno = EFAULT;
+        return NULL;
+    }
+
+    FILE* file = fopen(volume_file_name, "r");
+    if (file == NULL)
+    {
+        errno = ENOENT;
+        return NULL;
+    }
+
+    DISK* disk = calloc(1, sizeof(DISK));
+    if (disk == NULL)
+    {
+        errno = ENOMEM;
+        fclose(file);
+        return NULL;
+    }
+
+    disk->file = file;
+    fseek(file, 0x03, SEEK_SET);  // Skip jmp.
+    fread(disk->oem_name, 1, 8, file);
+    fread(&disk->bytes_per_sector, 2, 1, file);
+    fread(&disk->sectors_per_cluster, 1, 1, file);
+    fread(&disk->reserved_sector_count, 2, 1, file);
+    fread(&disk->table_count, 1, 1, file);
+    fread(&disk->root_entry_count, 2, 1, file);
+    fread(&disk->total_sectors_16, 2, 1, file);
+    fread(&disk->media_type, 1, 1, file);
+    fread(&disk->table_size_16, 2, 1, file);
+    fread(&disk->sectors_per_track, 2, 1, file);
+    fread(&disk->head_side_count, 2, 1, file);
+    fread(&disk->hidden_sector_count, 4, 1, file);
+    fread(&disk->large_sectors_32, 4, 1, file);
+    fread(&disk->extended_section.drive_number, 1, 1, file);
+    fread(&disk->extended_section.windows_nt_flags, 1, 1, file);
+    fread(&disk->extended_section.signature, 1, 1, file);
+    fread(&disk->extended_section.volume_id, 4, 1, file);
+    fread(&disk->extended_section.volume_label, 1, 11, file);
+    fread(&disk->extended_section.file_system_type, 1, 8, file);
+    return disk;
 }
 
 int disk_read(DISK* pdisk, int32_t first_sector, void* buffer, int32_t sectors_to_read)
 {
-    (void)pdisk;
-    (void)first_sector;
-    (void)buffer;
-    (void)sectors_to_read;
-    return 0;
+    if (pdisk == NULL || buffer == NULL)
+    {
+        errno = EFAULT;
+        return -1;
+    }
+
+    if (first_sector < 0 || sectors_to_read < 0 || (first_sector + sectors_to_read) > pdisk->total_sectors_16)
+    {
+        errno = ERANGE;
+        return -1;
+    }
+
+    fseek(pdisk->file, first_sector * pdisk->bytes_per_sector, SEEK_SET);
+    fread(buffer, pdisk->bytes_per_sector, sectors_to_read, pdisk->file);
+    return sectors_to_read;
 }
 
 int disk_close(DISK* pdisk)
 {
-    (void)pdisk;
+    if (pdisk == NULL)
+    {
+        errno = EFAULT;
+        return -1;
+    }
+
+    fclose(pdisk->file);
+    free(pdisk);
     return 0;
 }
 
