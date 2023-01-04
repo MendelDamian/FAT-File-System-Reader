@@ -97,23 +97,21 @@ typedef struct dir_entry_t
     bool is_directory;
     DATE creation_date;
     TIME creation_time;
+    int32_t first_cluster;
+    int32_t sector_count;
 } DIR_ENTRY;
 
 typedef struct file_t
 {
     VOLUME *volume;
     DIR_ENTRY entry;
-    int32_t first_cluster;
-    int32_t sector_count;
 } FILE_T;
 
 typedef struct dir_t
 {
     VOLUME *volume;
     DIR_ENTRY entry;
-    int32_t first_cluster;
     int32_t current_sector;
-    int32_t sector_count;
 } DIR;
 
 typedef struct dir_entry_data_t

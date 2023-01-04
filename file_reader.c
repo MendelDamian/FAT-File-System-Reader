@@ -179,10 +179,11 @@ int file_close(FILE_T* stream)
 
 size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
 {
-    (void)ptr;
-    (void)size;
-    (void)nmemb;
-    (void)stream;
+    if (ptr == NULL || size == 0 || nmemb == 0 || stream == NULL)
+    {
+        return 0;
+    }
+
     return 0;
 }
 
@@ -211,8 +212,8 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
     if (strcmp(dir_path, "/") == 0)
     {
         dir->volume = pvolume;
-        dir->first_cluster = (int32_t)first_root_dir_sector;
-        dir->sector_count = (int32_t)root_dir_sectors;
+        dir->entry.first_cluster = (int32_t)first_root_dir_sector;
+        dir->entry.sector_count = (int32_t)root_dir_sectors;
     }
     else
     {
@@ -232,14 +233,14 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
         return -1;
     }
 
-    void *buffer = calloc(pdir->sector_count, pdir->volume->bs.bytes_per_sector);
+    void *buffer = calloc(pdir->entry.sector_count, pdir->volume->bs.bytes_per_sector);
     if (buffer == NULL)
     {
         return -1;
     }
 
-    int result = disk_read(pdir->volume->disk, pdir->first_cluster, buffer, pdir->sector_count);
-    if (result != pdir->sector_count)
+    int result = disk_read(pdir->volume->disk, pdir->entry.first_cluster, buffer, pdir->entry.sector_count);
+    if (result != pdir->entry.sector_count)
     {
         free(buffer);
         return -1;
@@ -289,6 +290,7 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
     pentry->is_archived = entry_data.attributes & 0x20;
     pentry->creation_date = entry_data.creation_date;
     pentry->creation_time = entry_data.creation_time;
+    pentry->first_cluster = entry_data.first_cluster_low;
     return 0;
 }
 
