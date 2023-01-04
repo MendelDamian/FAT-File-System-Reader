@@ -113,6 +113,23 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
+    volume->fat_table = calloc(volume->bs.table_count, volume->bs.table_size_16 * volume->bs.bytes_per_sector);
+    if (volume->fat_table == NULL)
+    {
+        errno = EINVAL;
+        free(volume);
+        return NULL;
+    }
+
+    int result = disk_read(pdisk, volume->bs.reserved_sector_count, volume->fat_table, volume->bs.table_count);
+    if (result != volume->bs.table_count)
+    {
+        errno = EINVAL;
+        free(volume->fat_table);
+        free(volume);
+        return NULL;
+    }
+
     return volume;
 }
 

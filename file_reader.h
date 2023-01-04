@@ -84,6 +84,7 @@ typedef struct volume_t
 {
     DISK *disk;
     BOOTSECTOR bs;
+    void *fat_table;
 } VOLUME;
 
 typedef struct dir_entry_t
