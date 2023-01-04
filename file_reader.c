@@ -132,6 +132,10 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
+    volume->root_dir_sectors = ((bs->root_entry_count * 32) + (bs->bytes_per_sector - 1)) / bs->bytes_per_sector;
+    volume->first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + volume->root_dir_sectors;
+    volume->first_root_dir_sector = volume->first_data_sector - volume->root_dir_sectors;
+
     return volume;
 }
 
@@ -176,6 +180,15 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
         if (strcmp(file->entry.name, file_name) == 0)
         {
             dir_close(dir);
+
+            // Load cluster chain.
+            file->clusters_chain = get_chain_fat16(pvolume->fat_table, pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, file->entry.first_cluster);
+            if (file->clusters_chain == NULL)
+            {
+                free(file);
+                return NULL;
+            }
+
             return file;
         }
     }
@@ -192,6 +205,7 @@ int file_close(FILE_T* stream)
         return -1;
     }
 
+    free(stream->clusters_chain);
     free(stream);
     return 0;
 }
@@ -208,19 +222,45 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
 
 int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
 {
-    (void)stream;
-    (void)offset;
-    (void)whence;
-    return 0;
+    if (stream == NULL)
+    {
+        errno = EFAULT;
+        return -1;
+    }
+
+    int32_t old_offset = stream->current_offset;
+
+    switch (whence)
+    {
+    case SEEK_SET:
+        stream->current_offset = offset;
+        break;
+
+    case SEEK_CUR:
+        stream->current_offset += offset;
+        break;
+
+    case SEEK_END:
+        stream->current_offset = (int32_t)stream->entry.size + offset;
+        break;
+
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (stream->current_offset < 0 || stream->current_offset > (int32_t)stream->entry.size)
+    {
+        stream->current_offset = old_offset;
+        errno = ENXIO;
+        return -1;
+    }
+
+    return stream->current_offset;
 }
 
 DIR* dir_open(VOLUME* pvolume, const char* dir_path)
 {
-    BOOTSECTOR *bs = &pvolume->bs;
-    uint32_t root_dir_sectors = ((bs->root_entry_count * 32) + (bs->bytes_per_sector - 1)) / bs->bytes_per_sector;
-    uint32_t first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + root_dir_sectors;
-    uint32_t first_root_dir_sector = first_data_sector - root_dir_sectors;
-
     DIR* dir = calloc(1, sizeof(DIR));
     if (dir == NULL)
     {
@@ -231,8 +271,8 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
     if (strcmp(dir_path, "/") == 0)
     {
         dir->volume = pvolume;
-        dir->entry.first_cluster = (int32_t)first_root_dir_sector;
-        dir->entry.sector_count = (int32_t)root_dir_sectors;
+        dir->entry.first_cluster = (int32_t)pvolume->first_root_dir_sector;
+        dir->entry.sector_count = (int32_t)pvolume->root_dir_sectors;
     }
     else
     {
@@ -265,7 +305,7 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
         return -1;
     }
 
-    DIR_ENTRY_DATA entry_data = *((DIR_ENTRY_DATA *)buffer + pdir->current_sector++);
+    DIR_ENTRY_DATA entry_data = *((DIR_ENTRY_DATA *)buffer + pdir->current_entry++);
     if ((uint8_t)entry_data.filename[0] == 0x00)
     {
         free(buffer);

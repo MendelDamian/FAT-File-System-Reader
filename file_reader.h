@@ -85,6 +85,9 @@ typedef struct volume_t
     DISK *disk;
     BOOTSECTOR bs;
     void *fat_table;
+    uint32_t root_dir_sectors;
+    uint32_t first_data_sector;
+    uint32_t first_root_dir_sector;
 } VOLUME;
 
 typedef struct dir_entry_t
@@ -104,13 +107,15 @@ typedef struct file_t
 {
     VOLUME *volume;
     DIR_ENTRY entry;
+    CLUSTERS_CHAIN *clusters_chain;
+    int32_t current_offset;
 } FILE_T;
 
 typedef struct dir_t
 {
     VOLUME *volume;
     DIR_ENTRY entry;
-    int32_t current_sector;
+    int32_t current_entry;
 } DIR;
 
 typedef struct dir_entry_data_t
