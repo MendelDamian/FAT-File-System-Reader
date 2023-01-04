@@ -98,7 +98,9 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    if (volume->bs.signature != 0xAA55)
+    BOOTSECTOR *bs = &volume->bs;
+
+    if (bs->signature != 0xAA55)
     {
         errno = EINVAL;
         free(volume);
@@ -106,14 +108,14 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
     }
 
     // We don't care about FAT32.
-    if (volume->bs.table_size_16 == 0)
+    if (bs->table_size_16 == 0)
     {
         errno = EINVAL;
         free(volume);
         return NULL;
     }
 
-    volume->fat_table = calloc(volume->bs.table_count, volume->bs.table_size_16 * volume->bs.bytes_per_sector);
+    volume->fat_table = calloc(bs->table_count, bs->table_size_16 * bs->bytes_per_sector);
     if (volume->fat_table == NULL)
     {
         errno = EINVAL;
@@ -121,8 +123,8 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    int result = disk_read(pdisk, volume->bs.reserved_sector_count, volume->fat_table, volume->bs.table_count);
-    if (result != volume->bs.table_count)
+    int result = disk_read(pdisk, bs->reserved_sector_count, volume->fat_table, bs->table_count);
+    if (result != bs->table_count)
     {
         errno = EINVAL;
         free(volume->fat_table);
@@ -305,8 +307,6 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
     pentry->is_system = entry_data.attributes & 0x04;
     pentry->is_directory = entry_data.attributes & 0x10;
     pentry->is_archived = entry_data.attributes & 0x20;
-    pentry->creation_date = entry_data.creation_date;
-    pentry->creation_time = entry_data.creation_time;
     pentry->first_cluster = entry_data.first_cluster_low;
     return 0;
 }
