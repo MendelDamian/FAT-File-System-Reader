@@ -272,7 +272,7 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
     {
         dir->volume = pvolume;
         dir->entry.first_cluster = (int32_t)pvolume->first_root_dir_sector;
-        dir->entry.sector_count = (int32_t)pvolume->root_dir_sectors;
+        dir->sector_count = (int32_t)pvolume->root_dir_sectors;
     }
     else
     {
@@ -292,14 +292,14 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
         return -1;
     }
 
-    void *buffer = calloc(pdir->entry.sector_count, pdir->volume->bs.bytes_per_sector);
+    void *buffer = calloc(pdir->sector_count, pdir->volume->bs.bytes_per_sector);
     if (buffer == NULL)
     {
         return -1;
     }
 
-    int result = disk_read(pdir->volume->disk, pdir->entry.first_cluster, buffer, pdir->entry.sector_count);
-    if (result != pdir->entry.sector_count)
+    int result = disk_read(pdir->volume->disk, pdir->entry.first_cluster, buffer, pdir->sector_count);
+    if (result != pdir->sector_count)
     {
         free(buffer);
         return -1;

@@ -100,7 +100,6 @@ typedef struct dir_entry_t
     bool is_hidden;
     bool is_directory;
     int32_t first_cluster;
-    int32_t sector_count;
 } DIR_ENTRY;
 
 typedef struct file_t
@@ -116,6 +115,7 @@ typedef struct dir_t
     VOLUME *volume;
     DIR_ENTRY entry;
     int32_t current_entry;
+    int32_t sector_count;
 } DIR;
 
 typedef struct dir_entry_data_t
