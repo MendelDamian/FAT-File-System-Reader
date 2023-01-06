@@ -86,8 +86,9 @@ typedef struct volume_t
     BOOTSECTOR bs;
     void *fat_table;
     uint32_t root_dir_sectors;
-    uint32_t first_data_sector;
-    uint32_t first_root_dir_sector;
+    int32_t first_data_sector;
+    int32_t first_root_dir_sector;
+    uint32_t cluster_size;
 } VOLUME;
 
 typedef struct dir_entry_t
@@ -107,7 +108,7 @@ typedef struct file_t
     VOLUME *volume;
     DIR_ENTRY entry;
     CLUSTERS_CHAIN *clusters_chain;
-    int32_t current_offset;
+    int32_t position;
 } FILE_T;
 
 typedef struct dir_t
@@ -152,5 +153,6 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry);
 int dir_close(DIR* pdir);
 
 CLUSTERS_CHAIN *get_chain_fat16(const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_chain_fat12(const void* buffer, size_t size, uint16_t first_cluster);
 
 #endif //FILE_READER_H

@@ -6,6 +6,11 @@
 #include <errno.h>
 #include <string.h>
 
+int32_t get_cluster_first_sector(VOLUME *volume, uint16_t cluster)
+{
+    return ((cluster - 2) * volume->bs.sectors_per_cluster) + volume->first_data_sector;
+}
+
 DISK* disk_open_from_file(const char* volume_file_name)
 {
     if (volume_file_name == NULL)
@@ -115,7 +120,8 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    volume->fat_table = calloc(bs->table_count, bs->table_size_16 * bs->bytes_per_sector);
+//    volume->fat_table = calloc(bs->table_count, bs->table_size_16 * bs->bytes_per_sector);
+    volume->fat_table = calloc(bs->table_size_16,  bs->bytes_per_sector);
     if (volume->fat_table == NULL)
     {
         errno = EINVAL;
@@ -123,8 +129,8 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    int result = disk_read(pdisk, bs->reserved_sector_count, volume->fat_table, bs->table_count);
-    if (result != bs->table_count)
+    int result = disk_read(pdisk, bs->reserved_sector_count, volume->fat_table, bs->table_size_16);
+    if (result != bs->table_size_16)
     {
         errno = EINVAL;
         free(volume->fat_table);
@@ -135,6 +141,7 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
     volume->root_dir_sectors = ((bs->root_entry_count * 32) + (bs->bytes_per_sector - 1)) / bs->bytes_per_sector;
     volume->first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + volume->root_dir_sectors;
     volume->first_root_dir_sector = volume->first_data_sector - volume->root_dir_sectors;
+    volume->cluster_size = bs->bytes_per_sector * bs->sectors_per_cluster;
 
     return volume;
 }
@@ -217,7 +224,51 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
         return 0;
     }
 
-    return 0;
+    int32_t bytes_per_sector = stream->volume->bs.bytes_per_sector;
+
+    size_t bytes_to_read = size * nmemb;
+    size_t bytes_read = 0;
+
+    while (bytes_read < bytes_to_read)
+    {
+        uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->volume->cluster_size];
+        if (current_cluster == 0)
+        {
+            break;
+        }
+
+        int32_t first_sector = get_cluster_first_sector(stream->volume, current_cluster);
+        int32_t sector_offset = (stream->position % (int32_t)stream->volume->cluster_size) / bytes_per_sector;
+        int32_t sector = first_sector + sector_offset;
+
+        void *buffer = malloc(bytes_per_sector);
+        if (buffer == NULL)
+        {
+            errno = ENOMEM;
+            return 0;
+        }
+
+        if (disk_read(stream->volume->disk, sector, buffer, 1) != 1)
+        {
+            free(buffer);
+            return 0;
+        }
+
+        int32_t offset = stream->position % bytes_per_sector;
+        int32_t bytes_to_copy = bytes_per_sector - offset;
+        if (bytes_to_copy > (int32_t)(bytes_to_read - bytes_read))
+        {
+            bytes_to_copy = (int32_t)(bytes_to_read - bytes_read);
+        }
+
+        memcpy((char *)ptr + bytes_read, (char *)buffer + offset, bytes_to_copy);
+        free(buffer);
+
+        bytes_read += bytes_to_copy;
+        file_seek(stream, (int32_t)bytes_to_copy, SEEK_CUR);
+   }
+
+    return bytes_read;
 }
 
 int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
@@ -228,35 +279,26 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
         return -1;
     }
 
-    int32_t old_offset = stream->current_offset;
-
     switch (whence)
     {
-    case SEEK_SET:
-        stream->current_offset = offset;
-        break;
+        case SEEK_SET:
+            stream->position = offset;
+            break;
 
-    case SEEK_CUR:
-        stream->current_offset += offset;
-        break;
+        case SEEK_CUR:
+            stream->position += offset;
+            break;
 
-    case SEEK_END:
-        stream->current_offset = (int32_t)stream->entry.size + offset;
-        break;
+        case SEEK_END:
+            stream->position = (int32_t)stream->entry.size + offset;
+            break;
 
-    default:
-        errno = EINVAL;
-        return -1;
+        default:
+            errno = EINVAL;
+            return -1;
     }
 
-    if (stream->current_offset < 0 || stream->current_offset > (int32_t)stream->entry.size)
-    {
-        stream->current_offset = old_offset;
-        errno = ENXIO;
-        return -1;
-    }
-
-    return stream->current_offset;
+    return stream->position;
 }
 
 DIR* dir_open(VOLUME* pvolume, const char* dir_path)
@@ -409,6 +451,66 @@ CLUSTERS_CHAIN *get_chain_fat16(const void* const buffer, size_t size, uint16_t 
 
         chain->clusters[chain->size++] = table_value;
         ent_offset = (table_value * 2) % size;
+    }
+
+    return chain;
+}
+
+CLUSTERS_CHAIN *get_chain_fat12(const void* const buffer, size_t size, uint16_t first_cluster)
+{
+    if (buffer == NULL)
+    {
+        return NULL;
+    }
+
+    CLUSTERS_CHAIN *chain = calloc(1, sizeof(CLUSTERS_CHAIN));
+    if (chain == NULL)
+    {
+        return NULL;
+    }
+
+    chain->clusters = malloc(sizeof(uint16_t));
+    if (chain->clusters == NULL)
+    {
+        free(chain);
+        return NULL;
+    }
+
+    chain->clusters[0] = first_cluster;
+    chain->size = 1;
+
+    uint16_t active_cluster = first_cluster;
+    uint8_t *FAT_table = (uint8_t *)buffer;
+
+    while (1)
+    {
+        uint16_t ent_offset = (active_cluster + (active_cluster / 2)) % size;
+        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
+        if(active_cluster & 1)
+        {
+            table_value = table_value >> 4;
+        }
+        else
+        {
+            table_value = table_value & 0x0FFF;
+        }
+
+        if (table_value >= 0xFF8)
+        {
+            break;
+        }
+
+        uint16_t *new_clusters = realloc(chain->clusters, (chain->size + 1) * sizeof(uint16_t));
+        if (new_clusters == NULL)
+        {
+            free(chain->clusters);
+            free(chain);
+            return NULL;
+        }
+        chain->clusters = new_clusters;
+
+        chain->clusters[chain->size++] = table_value;
+        active_cluster = table_value;
     }
 
     return chain;
