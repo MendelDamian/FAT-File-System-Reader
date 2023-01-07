@@ -1,1 +1,1 @@
-# FAT16 File System
+# FAT12/FAT16 File System API
