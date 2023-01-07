@@ -18,7 +18,7 @@ int32_t get_cluster_first_sector(VOLUME *volume, uint16_t cluster)
 
 int compare_filenames(const char *str, const char *prefix)
 {
-    return strncmp(str, prefix, strlen(prefix));
+    return strncasecmp(str, prefix, strlen(prefix));
 }
 
 DISK *disk_open_from_file(const char *volume_file_name)
@@ -200,7 +200,6 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
         return NULL;
     }
 
-    file->volume = pvolume;
 
     DIR *dir = dir_open(pvolume, "/");
     if (dir == NULL)
@@ -209,14 +208,16 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
         return NULL;
     }
 
+    file->parent_dir = dir;
+    file->parent_dir->volume = pvolume;
+
     while (dir_read(dir, &file->entry) == 0)
     {
         if (compare_filenames(file->entry.name, file_name) == 0)
         {
-            dir_close(dir);
-
             if (file->entry.is_directory || file->entry.is_volume_label)
             {
+                dir_close(dir);
                 free(file);
                 errno = EISDIR;
                 return NULL;
@@ -226,6 +227,7 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
             file->clusters_chain = get_clusters_chain(pvolume, file->entry.first_cluster);
             if (file->clusters_chain == NULL)
             {
+                dir_close(dir);
                 free(file);
                 return NULL;
             }
@@ -247,6 +249,7 @@ int file_close(FILE_T *stream)
         return -1;
     }
 
+    dir_close(stream->parent_dir);
     free(stream->clusters_chain);
     free(stream);
     return 0;
@@ -265,8 +268,8 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
         return 0;
     }
 
-    uint32_t cluster_size = stream->volume->cluster_size;
-    int32_t sectors_per_cluster = (int32_t) stream->volume->bs.sectors_per_cluster;
+    uint32_t cluster_size = stream->parent_dir->volume->cluster_size;
+    int32_t sectors_per_cluster = (int32_t) stream->parent_dir->volume->bs.sectors_per_cluster;
 
     void *buffer = malloc(cluster_size);
     if (buffer == NULL)
@@ -279,15 +282,15 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 
     while (bytes_read < size * nmemb && stream->position < (int32_t) stream->entry.size)
     {
-        uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->volume->cluster_size];
+        uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->parent_dir->volume->cluster_size];
         if (current_cluster == 0)
         {
             break;
         }
 
-        int32_t sector = get_cluster_first_sector(stream->volume, current_cluster);
+        int32_t sector = get_cluster_first_sector(stream->parent_dir->volume, current_cluster);
 
-        if (disk_read(stream->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
+        if (disk_read(stream->parent_dir->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
         {
             errno = ERANGE;
             break;

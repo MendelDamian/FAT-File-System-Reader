@@ -112,21 +112,22 @@ typedef struct dir_entry_t
     int32_t first_cluster;
 } DIR_ENTRY;
 
-typedef struct file_t
-{
-    VOLUME *volume;
-    DIR_ENTRY entry;
-    CLUSTERS_CHAIN *clusters_chain;
-    int32_t position;
-} FILE_T;
-
 typedef struct dir_t
 {
+    struct dir_t *parent_dir;
     VOLUME *volume;
     DIR_ENTRY entry;
     int32_t current_entry;
     int32_t sector_count;
 } DIR;
+
+typedef struct file_t
+{
+    DIR *parent_dir;
+    DIR_ENTRY entry;
+    CLUSTERS_CHAIN *clusters_chain;
+    int32_t position;
+} FILE_T;
 
 typedef struct dir_entry_data_t
 {
