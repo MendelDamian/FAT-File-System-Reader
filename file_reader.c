@@ -122,8 +122,22 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
+    // set FAT_TYPE
+    if (bs->total_sectors_16 == 0)
+    {
+        volume->fat_type = FAT32;
+    }
+    else if (bs->total_sectors_32 == 0)
+    {
+        volume->fat_type = FAT16;
+    }
+    else
+    {
+        volume->fat_type = FAT12;
+    }
+
     // We don't care about FAT32.
-    if (bs->table_size_16 == 0)
+    if (volume->fat_type == FAT32)
     {
         errno = EINVAL;
         free(volume);
@@ -198,7 +212,9 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
             dir_close(dir);
 
             // Load cluster chain.
-            file->clusters_chain = get_chain_fat16(pvolume->fat_table, pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, file->entry.first_cluster);
+            file->clusters_chain = get_clusters_chain_fat16(pvolume->fat_table,
+                                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
+                                                            file->entry.first_cluster);
             if (file->clusters_chain == NULL)
             {
                 free(file);
@@ -427,8 +443,29 @@ int dir_close(DIR* pdir)
     return 0;
 }
 
+CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, const void* buffer, size_t size, uint16_t first_cluster)
+{
+    if (pvolume == NULL)
+    {
+        errno = EFAULT;
+        return NULL;
+    }
 
-CLUSTERS_CHAIN *get_chain_fat16(const void* const buffer, size_t size, uint16_t first_cluster)
+    switch (pvolume->fat_type)
+    {
+        case FAT12:
+            return get_clusters_chain_fat12(buffer, size, first_cluster);
+
+        case FAT16:
+            return get_clusters_chain_fat16(buffer, size, first_cluster);
+
+        default:
+            errno = EINVAL;
+            return NULL;
+    }
+}
+
+CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster)
 {
     if (buffer == NULL)
     {
@@ -478,7 +515,7 @@ CLUSTERS_CHAIN *get_chain_fat16(const void* const buffer, size_t size, uint16_t 
     return chain;
 }
 
-CLUSTERS_CHAIN *get_chain_fat12(const void* const buffer, size_t size, uint16_t first_cluster)
+CLUSTERS_CHAIN *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster)
 {
     if (buffer == NULL)
     {

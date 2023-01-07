@@ -20,6 +20,13 @@ typedef struct date_t
     uint16_t year:7;
 } __attribute__((packed)) DATE;
 
+typedef enum fat_type_t
+{
+    FAT12,
+    FAT16,
+    FAT32
+} FAT_TYPE;
+
 typedef struct bootsector_t
 {
     // Assembly code instructions to jump to boot code (mandatory in bootable partition)
@@ -84,6 +91,7 @@ typedef struct volume_t
 {
     DISK *disk;
     BOOTSECTOR bs;
+    FAT_TYPE fat_type;
     void *fat_table;
     uint32_t root_dir_sectors;
     int32_t first_data_sector;
@@ -155,7 +163,8 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path);
 int dir_read(DIR* pdir, DIR_ENTRY* pentry);
 int dir_close(DIR* pdir);
 
-CLUSTERS_CHAIN *get_chain_fat16(const void* buffer, size_t size, uint16_t first_cluster);
-CLUSTERS_CHAIN *get_chain_fat12(const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain_fat16(const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain_fat12(const void* buffer, size_t size, uint16_t first_cluster);
 
 #endif //FILE_READER_H
