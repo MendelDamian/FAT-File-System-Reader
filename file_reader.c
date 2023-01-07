@@ -287,18 +287,20 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
         return -1;
     }
 
+    int32_t new_position;
+
     switch (whence)
     {
         case SEEK_SET:
-            stream->position = offset;
+            new_position = offset;
             break;
 
         case SEEK_CUR:
-            stream->position += offset;
+            new_position = stream->position + offset;
             break;
 
         case SEEK_END:
-            stream->position = (int32_t)stream->entry.size + offset;
+            new_position = (int32_t)stream->entry.size + offset;
             break;
 
         default:
@@ -306,6 +308,13 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
             return -1;
     }
 
+    if (new_position < 0 || new_position > (int32_t)stream->entry.size)
+    {
+        errno = ENXIO;
+        return -1;
+    }
+
+    stream->position = new_position;
     return stream->position;
 }
 
