@@ -406,6 +406,7 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
     pentry->is_readonly = entry_data.attributes & 0x01;
     pentry->is_hidden = entry_data.attributes & 0x02;
     pentry->is_system = entry_data.attributes & 0x04;
+    pentry->is_volume_label = entry_data.attributes & 0x08;
     pentry->is_directory = entry_data.attributes & 0x10;
     pentry->is_archived = entry_data.attributes & 0x20;
     pentry->first_cluster = entry_data.first_cluster_low;

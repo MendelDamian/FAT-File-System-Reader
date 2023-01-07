@@ -97,6 +97,7 @@ typedef struct dir_entry_t
     size_t size;
     bool is_archived;
     bool is_readonly;
+    bool is_volume_label;
     bool is_system;
     bool is_hidden;
     bool is_directory;
