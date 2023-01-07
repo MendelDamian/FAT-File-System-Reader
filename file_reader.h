@@ -101,6 +101,8 @@ typedef struct dir_entry_t
     bool is_system;
     bool is_hidden;
     bool is_directory;
+    DATE creation_date;
+    TIME creation_time;
     int32_t first_cluster;
 } DIR_ENTRY;
 

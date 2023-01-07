@@ -409,6 +409,8 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
     pentry->is_volume_label = entry_data.attributes & 0x08;
     pentry->is_directory = entry_data.attributes & 0x10;
     pentry->is_archived = entry_data.attributes & 0x20;
+    pentry->creation_date = entry_data.creation_date;
+    pentry->creation_time = entry_data.creation_time;
     pentry->first_cluster = entry_data.first_cluster_low;
     return 0;
 }
