@@ -6,9 +6,19 @@
 #include <errno.h>
 #include <string.h>
 
+size_t min(size_t a, size_t b)
+{
+    return a < b ? a : b;
+}
+
 int32_t get_cluster_first_sector(VOLUME *volume, uint16_t cluster)
 {
     return ((cluster - 2) * volume->bs.sectors_per_cluster) + volume->first_data_sector;
+}
+
+int compare_filenames(const char *str, const char *prefix)
+{
+    return strncmp(str, prefix, strlen(prefix));
 }
 
 DISK* disk_open_from_file(const char* volume_file_name)
@@ -120,7 +130,6 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-//    volume->fat_table = calloc(bs->table_count, bs->table_size_16 * bs->bytes_per_sector);
     volume->fat_table = calloc(bs->table_size_16,  bs->bytes_per_sector);
     if (volume->fat_table == NULL)
     {
@@ -184,7 +193,7 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
 
     while (dir_read(dir, &file->entry) == 0)
     {
-        if (strcmp(file->entry.name, file_name) == 0)
+        if (file->entry.is_directory == false && compare_filenames(file->entry.name, file_name) == 0)
         {
             dir_close(dir);
 
@@ -219,17 +228,29 @@ int file_close(FILE_T* stream)
 
 size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
 {
-    if (ptr == NULL || size == 0 || nmemb == 0 || stream == NULL)
+    if (ptr == NULL || stream == NULL)
+    {
+        return -1;
+    }
+
+    if (size == 0 || nmemb == 0)
     {
         return 0;
     }
 
-    int32_t bytes_per_sector = stream->volume->bs.bytes_per_sector;
+    uint32_t cluster_size = stream->volume->cluster_size;
+    int32_t sectors_per_cluster = (int32_t)stream->volume->bs.sectors_per_cluster;
 
-    size_t bytes_to_read = size * nmemb;
+    void *buffer = malloc(cluster_size);
+    if (buffer == NULL)
+    {
+        errno = ENOMEM;
+        return 0;
+    }
+
     size_t bytes_read = 0;
 
-    while (bytes_read < bytes_to_read)
+    while (bytes_read < size * nmemb && stream->position < (int32_t)stream->entry.size)
     {
         uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->volume->cluster_size];
         if (current_cluster == 0)
@@ -237,38 +258,25 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
             break;
         }
 
-        int32_t first_sector = get_cluster_first_sector(stream->volume, current_cluster);
-        int32_t sector_offset = (stream->position % (int32_t)stream->volume->cluster_size) / bytes_per_sector;
-        int32_t sector = first_sector + sector_offset;
+        int32_t sector = get_cluster_first_sector(stream->volume, current_cluster);
 
-        void *buffer = malloc(bytes_per_sector);
-        if (buffer == NULL)
+        if (disk_read(stream->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
         {
-            errno = ENOMEM;
-            return 0;
+            break;
         }
 
-        if (disk_read(stream->volume->disk, sector, buffer, 1) != 1)
-        {
-            free(buffer);
-            return 0;
-        }
-
-        int32_t offset = stream->position % bytes_per_sector;
-        int32_t bytes_to_copy = bytes_per_sector - offset;
-        if (bytes_to_copy > (int32_t)(bytes_to_read - bytes_read))
-        {
-            bytes_to_copy = (int32_t)(bytes_to_read - bytes_read);
-        }
-
-        memcpy((char *)ptr + bytes_read, (char *)buffer + offset, bytes_to_copy);
-        free(buffer);
+        size_t offset = stream->position % cluster_size;
+        size_t remaining_bytes = cluster_size - offset;
+        size_t bytes_to_copy = min(remaining_bytes, size * nmemb - bytes_read);
+        bytes_to_copy = min(bytes_to_copy, stream->entry.size - stream->position);
+        memcpy((uint8_t*)ptr + bytes_read, (uint8_t*)buffer + offset, bytes_to_copy);
 
         bytes_read += bytes_to_copy;
         file_seek(stream, (int32_t)bytes_to_copy, SEEK_CUR);
-   }
+    }
 
-    return bytes_read;
+    free(buffer);
+    return bytes_read / size;
 }
 
 int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
@@ -310,7 +318,7 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
         return NULL;
     }
 
-    if (strcmp(dir_path, "/") == 0)
+    if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0)
     {
         dir->volume = pvolume;
         dir->entry.first_cluster = (int32_t)pvolume->first_root_dir_sector;
@@ -333,6 +341,8 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
         errno = EFAULT;
         return -1;
     }
+
+    memset(pentry, 0, sizeof(DIR_ENTRY));
 
     void *buffer = calloc(pdir->sector_count, pdir->volume->bs.bytes_per_sector);
     if (buffer == NULL)
