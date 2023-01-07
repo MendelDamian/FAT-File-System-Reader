@@ -8,23 +8,21 @@
 
 typedef struct time_t
 {
-    uint16_t second:5;
-    uint16_t minute:6;
-    uint16_t hour:5;
+    uint16_t second: 5;
+    uint16_t minute: 6;
+    uint16_t hour: 5;
 } __attribute__((packed)) TIME;
 
 typedef struct date_t
 {
-    uint16_t day:5;
-    uint16_t month:4;
-    uint16_t year:7;
+    uint16_t day: 5;
+    uint16_t month: 4;
+    uint16_t year: 7;
 } __attribute__((packed)) DATE;
 
 typedef enum fat_type_t
 {
-    FAT12,
-    FAT16,
-    FAT32
+    FAT12, FAT16, FAT32
 } FAT_TYPE;
 
 typedef struct bootsector_t
@@ -146,25 +144,24 @@ typedef struct dir_entry_data_t
     uint32_t file_size;
 } __attribute__((packed)) DIR_ENTRY_DATA;
 
-DISK* disk_open_from_file(const char* volume_file_name);
-int disk_read(DISK* pdisk, int32_t first_sector, void* buffer, int32_t sectors_to_read);
-int disk_close(DISK* pdisk);
+DISK *disk_open_from_file(const char *volume_file_name);
+int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read);
+int disk_close(DISK *pdisk);
 
-VOLUME* fat_open(DISK* pdisk, uint32_t first_sector);
-int fat_close(VOLUME* pvolume);
+VOLUME *fat_open(DISK *pdisk, uint32_t first_sector);
+int fat_close(VOLUME *pvolume);
 
-FILE_T* file_open(VOLUME* pvolume, const char* file_name);
-int file_close(FILE_T* stream);
+FILE_T *file_open(VOLUME *pvolume, const char *file_name);
+size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream);
+int32_t file_seek(FILE_T *stream, int32_t offset, int whence);
+int file_close(FILE_T *stream);
 
-size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream);
-int32_t file_seek(FILE_T* stream, int32_t offset, int whence);
-
-DIR* dir_open(VOLUME* pvolume, const char* dir_path);
-int dir_read(DIR* pdir, DIR_ENTRY* pentry);
-int dir_close(DIR* pdir);
+DIR *dir_open(VOLUME *pvolume, const char *dir_path);
+int dir_read(DIR *pdir, DIR_ENTRY *pentry);
+int dir_close(DIR *pdir);
 
 CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster);
-CLUSTERS_CHAIN *get_clusters_chain_fat16(const void* buffer, size_t size, uint16_t first_cluster);
-CLUSTERS_CHAIN *get_clusters_chain_fat12(const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster);
 
 #endif //FILE_READER_H

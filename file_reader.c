@@ -21,7 +21,7 @@ int compare_filenames(const char *str, const char *prefix)
     return strncmp(str, prefix, strlen(prefix));
 }
 
-DISK* disk_open_from_file(const char* volume_file_name)
+DISK *disk_open_from_file(const char *volume_file_name)
 {
     if (volume_file_name == NULL)
     {
@@ -29,14 +29,14 @@ DISK* disk_open_from_file(const char* volume_file_name)
         return NULL;
     }
 
-    FILE* file = fopen(volume_file_name, "rb");
+    FILE *file = fopen(volume_file_name, "rb");
     if (file == NULL)
     {
         errno = ENOENT;
         return NULL;
     }
 
-    DISK* disk = calloc(1, sizeof(DISK));
+    DISK *disk = calloc(1, sizeof(DISK));
     if (disk == NULL)
     {
         errno = ENOMEM;
@@ -52,7 +52,7 @@ DISK* disk_open_from_file(const char* volume_file_name)
     return disk;
 }
 
-int disk_read(DISK* pdisk, int32_t first_sector, void* buffer, int32_t sectors_to_read)
+int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read)
 {
     if (pdisk == NULL || buffer == NULL)
     {
@@ -68,7 +68,7 @@ int disk_read(DISK* pdisk, int32_t first_sector, void* buffer, int32_t sectors_t
 
     fseek(pdisk->file, first_sector * 512, SEEK_SET);
     size_t read = fread(buffer, 512, sectors_to_read, pdisk->file);
-    if (read != (size_t)sectors_to_read)
+    if (read != (size_t) sectors_to_read)
     {
         errno = EIO;
         return -1;
@@ -77,7 +77,7 @@ int disk_read(DISK* pdisk, int32_t first_sector, void* buffer, int32_t sectors_t
     return sectors_to_read;
 }
 
-int disk_close(DISK* pdisk)
+int disk_close(DISK *pdisk)
 {
     if (pdisk == NULL)
     {
@@ -90,7 +90,7 @@ int disk_close(DISK* pdisk)
     return 0;
 }
 
-VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
+VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
 {
     if (pdisk == NULL)
     {
@@ -98,7 +98,7 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    VOLUME* volume = calloc(1, sizeof(VOLUME));
+    VOLUME *volume = calloc(1, sizeof(VOLUME));
     if (volume == NULL)
     {
         errno = ENOMEM;
@@ -107,7 +107,7 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
 
     volume->disk = pdisk;
 
-    if (disk_read(pdisk, (int32_t)first_sector, &volume->bs, 1) != 1)
+    if (disk_read(pdisk, (int32_t) first_sector, &volume->bs, 1) != 1)
     {
         free(volume);
         return NULL;
@@ -144,7 +144,7 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    volume->fat_table = calloc(bs->table_size_16,  bs->bytes_per_sector);
+    volume->fat_table = calloc(bs->table_size_16, bs->bytes_per_sector);
     if (volume->fat_table == NULL)
     {
         errno = EINVAL;
@@ -169,7 +169,7 @@ VOLUME* fat_open(DISK* pdisk, uint32_t first_sector)
     return volume;
 }
 
-int fat_close(VOLUME* pvolume)
+int fat_close(VOLUME *pvolume)
 {
     if (pvolume == NULL)
     {
@@ -181,7 +181,7 @@ int fat_close(VOLUME* pvolume)
     return 0;
 }
 
-FILE_T* file_open(VOLUME* pvolume, const char* file_name)
+FILE_T *file_open(VOLUME *pvolume, const char *file_name)
 {
     if (pvolume == NULL || file_name == NULL)
     {
@@ -189,7 +189,7 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
         return NULL;
     }
 
-    FILE_T* file = calloc(1, sizeof(FILE_T));
+    FILE_T *file = calloc(1, sizeof(FILE_T));
     if (file == NULL)
     {
         errno = ENOMEM;
@@ -198,7 +198,7 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
 
     file->volume = pvolume;
 
-    DIR* dir = dir_open(pvolume, "/");
+    DIR *dir = dir_open(pvolume, "/");
     if (dir == NULL)
     {
         free(file);
@@ -227,7 +227,7 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
     return NULL;
 }
 
-int file_close(FILE_T* stream)
+int file_close(FILE_T *stream)
 {
     if (stream == NULL)
     {
@@ -240,7 +240,7 @@ int file_close(FILE_T* stream)
     return 0;
 }
 
-size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
+size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 {
     if (ptr == NULL || stream == NULL)
     {
@@ -253,7 +253,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
     }
 
     uint32_t cluster_size = stream->volume->cluster_size;
-    int32_t sectors_per_cluster = (int32_t)stream->volume->bs.sectors_per_cluster;
+    int32_t sectors_per_cluster = (int32_t) stream->volume->bs.sectors_per_cluster;
 
     void *buffer = malloc(cluster_size);
     if (buffer == NULL)
@@ -264,7 +264,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
 
     size_t bytes_read = 0;
 
-    while (bytes_read < size * nmemb && stream->position < (int32_t)stream->entry.size)
+    while (bytes_read < size * nmemb && stream->position < (int32_t) stream->entry.size)
     {
         uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->volume->cluster_size];
         if (current_cluster == 0)
@@ -283,17 +283,17 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T* stream)
         size_t remaining_bytes = cluster_size - offset;
         size_t bytes_to_copy = min(remaining_bytes, size * nmemb - bytes_read);
         bytes_to_copy = min(bytes_to_copy, stream->entry.size - stream->position);
-        memcpy((uint8_t*)ptr + bytes_read, (uint8_t*)buffer + offset, bytes_to_copy);
+        memcpy((uint8_t *) ptr + bytes_read, (uint8_t *) buffer + offset, bytes_to_copy);
 
         bytes_read += bytes_to_copy;
-        file_seek(stream, (int32_t)bytes_to_copy, SEEK_CUR);
+        file_seek(stream, (int32_t) bytes_to_copy, SEEK_CUR);
     }
 
     free(buffer);
     return bytes_read / size;
 }
 
-int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
+int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
 {
     if (stream == NULL)
     {
@@ -314,7 +314,7 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
             break;
 
         case SEEK_END:
-            new_position = (int32_t)stream->entry.size + offset;
+            new_position = (int32_t) stream->entry.size + offset;
             break;
 
         default:
@@ -322,7 +322,7 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
             return -1;
     }
 
-    if (new_position < 0 || new_position > (int32_t)stream->entry.size)
+    if (new_position < 0 || new_position > (int32_t) stream->entry.size)
     {
         errno = ENXIO;
         return -1;
@@ -332,9 +332,9 @@ int32_t file_seek(FILE_T* stream, int32_t offset, int whence)
     return stream->position;
 }
 
-DIR* dir_open(VOLUME* pvolume, const char* dir_path)
+DIR *dir_open(VOLUME *pvolume, const char *dir_path)
 {
-    DIR* dir = calloc(1, sizeof(DIR));
+    DIR *dir = calloc(1, sizeof(DIR));
     if (dir == NULL)
     {
         errno = ENOMEM;
@@ -344,8 +344,8 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
     if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0)
     {
         dir->volume = pvolume;
-        dir->entry.first_cluster = (int32_t)pvolume->first_root_dir_sector;
-        dir->sector_count = (int32_t)pvolume->root_dir_sectors;
+        dir->entry.first_cluster = (int32_t) pvolume->first_root_dir_sector;
+        dir->sector_count = (int32_t) pvolume->root_dir_sectors;
     }
     else
     {
@@ -357,7 +357,7 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path)
     return dir;
 }
 
-int dir_read(DIR* pdir, DIR_ENTRY* pentry)
+int dir_read(DIR *pdir, DIR_ENTRY *pentry)
 {
     if (pdir == NULL || pentry == NULL)
     {
@@ -380,14 +380,14 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
         return -1;
     }
 
-    DIR_ENTRY_DATA entry_data = *((DIR_ENTRY_DATA *)buffer + pdir->current_entry++);
-    if ((uint8_t)entry_data.filename[0] == 0x00)
+    DIR_ENTRY_DATA entry_data = *((DIR_ENTRY_DATA *) buffer + pdir->current_entry++);
+    if ((uint8_t) entry_data.filename[0] == 0x00)
     {
         free(buffer);
         return 1;
     }
 
-    if ((uint8_t)entry_data.filename[0] == 0xe5)
+    if ((uint8_t) entry_data.filename[0] == 0xe5)
     {
         return dir_read(pdir, pentry);
     }
@@ -429,7 +429,7 @@ int dir_read(DIR* pdir, DIR_ENTRY* pentry)
     return 0;
 }
 
-int dir_close(DIR* pdir)
+int dir_close(DIR *pdir)
 {
     if (pdir == NULL)
     {
@@ -488,12 +488,12 @@ CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16
     chain->clusters[0] = first_cluster;
     chain->size = 1;
 
-    uint8_t *FAT_table = (uint8_t *)buffer;
+    uint8_t *FAT_table = (uint8_t *) buffer;
     uint16_t ent_offset = (first_cluster * 2) % size;
 
     while (1)
     {
-        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
+        uint16_t table_value = *(uint16_t *) &FAT_table[ent_offset];
         if (table_value >= 0xFFF8)
         {
             break;
@@ -539,13 +539,13 @@ CLUSTERS_CHAIN *get_clusters_chain_fat12(const void *buffer, size_t size, uint16
     chain->size = 1;
 
     uint16_t active_cluster = first_cluster;
-    uint8_t *FAT_table = (uint8_t *)buffer;
+    uint8_t *FAT_table = (uint8_t *) buffer;
 
     while (1)
     {
         uint16_t ent_offset = (active_cluster + (active_cluster / 2)) % size;
-        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
-        if(active_cluster & 1)
+        uint16_t table_value = *(uint16_t *) &FAT_table[ent_offset];
+        if (active_cluster & 1)
         {
             table_value = table_value >> 4;
         }
