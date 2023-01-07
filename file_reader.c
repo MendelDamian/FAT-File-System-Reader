@@ -212,9 +212,7 @@ FILE_T* file_open(VOLUME* pvolume, const char* file_name)
             dir_close(dir);
 
             // Load cluster chain.
-            file->clusters_chain = get_clusters_chain_fat16(pvolume->fat_table,
-                                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
-                                                            file->entry.first_cluster);
+            file->clusters_chain = get_clusters_chain(pvolume, file->entry.first_cluster);
             if (file->clusters_chain == NULL)
             {
                 free(file);
@@ -443,7 +441,7 @@ int dir_close(DIR* pdir)
     return 0;
 }
 
-CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, const void* buffer, size_t size, uint16_t first_cluster)
+CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster)
 {
     if (pvolume == NULL)
     {
@@ -454,10 +452,12 @@ CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, const void* buffer, size_t s
     switch (pvolume->fat_type)
     {
         case FAT12:
-            return get_clusters_chain_fat12(buffer, size, first_cluster);
+            return get_clusters_chain_fat12(pvolume->fat_table,
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
 
         case FAT16:
-            return get_clusters_chain_fat16(buffer, size, first_cluster);
+            return get_clusters_chain_fat16(pvolume->fat_table,
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
 
         default:
             errno = EINVAL;

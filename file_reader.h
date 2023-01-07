@@ -163,7 +163,7 @@ DIR* dir_open(VOLUME* pvolume, const char* dir_path);
 int dir_read(DIR* pdir, DIR_ENTRY* pentry);
 int dir_close(DIR* pdir);
 
-CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, const void* buffer, size_t size, uint16_t first_cluster);
+CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster);
 CLUSTERS_CHAIN *get_clusters_chain_fat16(const void* buffer, size_t size, uint16_t first_cluster);
 CLUSTERS_CHAIN *get_clusters_chain_fat12(const void* buffer, size_t size, uint16_t first_cluster);
 
