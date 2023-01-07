@@ -60,17 +60,16 @@ int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_t
         return -1;
     }
 
-    if (first_sector < 0 || sectors_to_read < 0)
+    if (first_sector < 0 || sectors_to_read < 0 || first_sector + sectors_to_read > (int32_t) pdisk->size / 512)
     {
-        errno = EINVAL;
+        errno = ERANGE;
         return -1;
     }
 
     fseek(pdisk->file, first_sector * 512, SEEK_SET);
-    size_t read = fread(buffer, 512, sectors_to_read, pdisk->file);
-    if (read != (size_t) sectors_to_read)
+    if (fread(buffer, 512, sectors_to_read, pdisk->file) != (size_t) sectors_to_read)
     {
-        errno = EIO;
+        errno = ERANGE;
         return -1;
     }
 
@@ -106,15 +105,14 @@ VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
     }
 
     volume->disk = pdisk;
-
     if (disk_read(pdisk, (int32_t) first_sector, &volume->bs, 1) != 1)
     {
         free(volume);
+        errno = EINVAL;
         return NULL;
     }
 
     BOOTSECTOR *bs = &volume->bs;
-
     if (bs->signature != 0xAA55)
     {
         errno = EINVAL;
@@ -139,25 +137,25 @@ VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
     // We don't care about FAT32.
     if (volume->fat_type == FAT32)
     {
-        errno = EINVAL;
         free(volume);
+        errno = EINVAL;
         return NULL;
     }
 
     volume->fat_table = calloc(bs->table_size_16, bs->bytes_per_sector);
     if (volume->fat_table == NULL)
     {
-        errno = EINVAL;
         free(volume);
+        errno = ENOMEM;
         return NULL;
     }
 
     int result = disk_read(pdisk, bs->reserved_sector_count, volume->fat_table, bs->table_size_16);
     if (result != bs->table_size_16)
     {
-        errno = EINVAL;
         free(volume->fat_table);
         free(volume);
+        errno = EINVAL;
         return NULL;
     }
 
@@ -183,9 +181,15 @@ int fat_close(VOLUME *pvolume)
 
 FILE_T *file_open(VOLUME *pvolume, const char *file_name)
 {
-    if (pvolume == NULL || file_name == NULL)
+    if (pvolume == NULL)
     {
         errno = EFAULT;
+        return NULL;
+    }
+
+    if (file_name == NULL)
+    {
+        errno = ENOENT;
         return NULL;
     }
 
@@ -207,11 +211,18 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
 
     while (dir_read(dir, &file->entry) == 0)
     {
-        if (file->entry.is_directory == false && compare_filenames(file->entry.name, file_name) == 0)
+        if (compare_filenames(file->entry.name, file_name) == 0)
         {
             dir_close(dir);
 
-            // Load cluster chain.
+            if (file->entry.is_directory || file->entry.is_volume_label)
+            {
+                free(file);
+                errno = EISDIR;
+                return NULL;
+            }
+
+            // Load clusters chain.
             file->clusters_chain = get_clusters_chain(pvolume, file->entry.first_cluster);
             if (file->clusters_chain == NULL)
             {
@@ -224,6 +235,7 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
     }
 
     dir_close(dir);
+    errno = ENOENT;
     return NULL;
 }
 
@@ -244,6 +256,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 {
     if (ptr == NULL || stream == NULL)
     {
+        errno = EFAULT;
         return -1;
     }
 
@@ -276,6 +289,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 
         if (disk_read(stream->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
         {
+            errno = ERANGE;
             break;
         }
 
@@ -334,6 +348,12 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
 
 DIR *dir_open(VOLUME *pvolume, const char *dir_path)
 {
+    if (pvolume == NULL)
+    {
+        errno = EFAULT;
+        return NULL;
+    }
+
     DIR *dir = calloc(1, sizeof(DIR));
     if (dir == NULL)
     {
@@ -341,16 +361,19 @@ DIR *dir_open(VOLUME *pvolume, const char *dir_path)
         return NULL;
     }
 
+    // Only root directory is supported.
     if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0)
     {
         dir->volume = pvolume;
-        dir->entry.first_cluster = (int32_t) pvolume->first_root_dir_sector;
-        dir->sector_count = (int32_t) pvolume->root_dir_sectors;
+        dir->sector_count = (int32_t)pvolume->root_dir_sectors;
+        dir->entry.first_cluster = pvolume->first_root_dir_sector;
+        dir->entry.size = dir->sector_count * pvolume->bs.bytes_per_sector;
+        dir->entry.is_directory = true;
     }
     else
     {
-        errno = ENOENT;
         free(dir);
+        errno = ENOENT;
         return NULL;
     }
 
@@ -453,11 +476,13 @@ CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster)
     {
         case FAT12:
             return get_clusters_chain_fat12(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
+                                            first_cluster);
 
         case FAT16:
             return get_clusters_chain_fat16(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
+                                            first_cluster);
 
         default:
             errno = EINVAL;
