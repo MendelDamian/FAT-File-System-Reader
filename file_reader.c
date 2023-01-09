@@ -11,7 +11,7 @@ size_t min(size_t a, size_t b)
     return a < b ? a : b;
 }
 
-int32_t get_cluster_first_sector(VOLUME *volume, uint16_t cluster)
+int32_t get_cluster_first_sector(volume_t *volume, uint16_t cluster)
 {
     return ((cluster - 2) * volume->bs.sectors_per_cluster) + volume->first_data_sector;
 }
@@ -21,7 +21,18 @@ int compare_filenames(const char *str, const char *prefix)
     return strncasecmp(str, prefix, strlen(prefix));
 }
 
-DISK *disk_open_from_file(const char *volume_file_name)
+char *get_filename(const char *path)
+{
+    char *slash = strrchr(path, '/');
+    if (slash == NULL)
+    {
+        slash = strrchr(path, '\\');
+    }
+
+    return slash == NULL ? (char *)path : slash + 1;
+}
+
+disk_t *disk_open_from_file(const char *volume_file_name)
 {
     if (volume_file_name == NULL)
     {
@@ -36,7 +47,7 @@ DISK *disk_open_from_file(const char *volume_file_name)
         return NULL;
     }
 
-    DISK *disk = calloc(1, sizeof(DISK));
+    disk_t *disk = calloc(1, sizeof(disk_t));
     if (disk == NULL)
     {
         errno = ENOMEM;
@@ -52,7 +63,7 @@ DISK *disk_open_from_file(const char *volume_file_name)
     return disk;
 }
 
-int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read)
+int disk_read(disk_t *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read)
 {
     if (pdisk == NULL || buffer == NULL)
     {
@@ -76,7 +87,7 @@ int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_t
     return sectors_to_read;
 }
 
-int disk_close(DISK *pdisk)
+int disk_close(disk_t *pdisk)
 {
     if (pdisk == NULL)
     {
@@ -89,7 +100,7 @@ int disk_close(DISK *pdisk)
     return 0;
 }
 
-VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
+volume_t *fat_open(disk_t *pdisk, uint32_t first_sector)
 {
     if (pdisk == NULL)
     {
@@ -97,7 +108,7 @@ VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    VOLUME *volume = calloc(1, sizeof(VOLUME));
+    volume_t *volume = calloc(1, sizeof(volume_t));
     if (volume == NULL)
     {
         errno = ENOMEM;
@@ -112,7 +123,7 @@ VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
         return NULL;
     }
 
-    BOOTSECTOR *bs = &volume->bs;
+    bootsector_t *bs = &volume->bs;
     if (bs->signature != 0xAA55)
     {
         errno = EINVAL;
@@ -167,7 +178,7 @@ VOLUME *fat_open(DISK *pdisk, uint32_t first_sector)
     return volume;
 }
 
-int fat_close(VOLUME *pvolume)
+int fat_close(volume_t *pvolume)
 {
     if (pvolume == NULL)
     {
@@ -179,7 +190,7 @@ int fat_close(VOLUME *pvolume)
     return 0;
 }
 
-FILE_T *file_open(VOLUME *pvolume, const char *file_name)
+file_t *file_open(volume_t *pvolume, const char *file_name)
 {
     if (pvolume == NULL)
     {
@@ -193,15 +204,25 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
         return NULL;
     }
 
-    FILE_T *file = calloc(1, sizeof(FILE_T));
+    file_t *file = calloc(1, sizeof(file_t));
     if (file == NULL)
     {
         errno = ENOMEM;
         return NULL;
     }
 
+    char *name = get_filename(file_name);
+    strcpy(file->entry.name, name);
 
-    DIR *dir = dir_open(pvolume, "/");
+    char *dir_path = strndup(file_name, name - file_name);
+    if (dir_path == NULL)
+    {
+        free(file);
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    dir_t *dir = dir_open(pvolume, dir_path);
     if (dir == NULL)
     {
         free(file);
@@ -213,7 +234,7 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
 
     while (dir_read(dir, &file->entry) == 0)
     {
-        if (compare_filenames(file->entry.name, file_name) == 0)
+        if (compare_filenames(file->entry.name, name) == 0)
         {
             if (file->entry.is_directory || file->entry.is_volume_label)
             {
@@ -241,7 +262,7 @@ FILE_T *file_open(VOLUME *pvolume, const char *file_name)
     return NULL;
 }
 
-int file_close(FILE_T *stream)
+int file_close(file_t *stream)
 {
     if (stream == NULL)
     {
@@ -255,7 +276,7 @@ int file_close(FILE_T *stream)
     return 0;
 }
 
-size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
+size_t file_read(void *ptr, size_t size, size_t nmemb, file_t *stream)
 {
     if (ptr == NULL || stream == NULL)
     {
@@ -310,7 +331,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
     return bytes_read / size;
 }
 
-int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
+int32_t file_seek(file_t *stream, int32_t offset, int whence)
 {
     if (stream == NULL)
     {
@@ -349,7 +370,7 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
     return stream->position;
 }
 
-DIR *dir_open(VOLUME *pvolume, const char *dir_path)
+dir_t *dir_open(volume_t *pvolume, const char *dir_path)
 {
     if (pvolume == NULL)
     {
@@ -357,33 +378,27 @@ DIR *dir_open(VOLUME *pvolume, const char *dir_path)
         return NULL;
     }
 
-    DIR *dir = calloc(1, sizeof(DIR));
+    dir_t *dir = calloc(1, sizeof(dir_t));
     if (dir == NULL)
     {
         errno = ENOMEM;
         return NULL;
     }
 
-    // Only root directory is supported.
-    if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0)
+    if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0 || strcmp(dir_path, "") == 0)
     {
         dir->volume = pvolume;
         dir->sector_count = (int32_t)pvolume->root_dir_sectors;
         dir->entry.first_cluster = pvolume->first_root_dir_sector;
         dir->entry.size = dir->sector_count * pvolume->bs.bytes_per_sector;
+        dir->entry.name[0] = '\\';
         dir->entry.is_directory = true;
-    }
-    else
-    {
-        free(dir);
-        errno = ENOENT;
-        return NULL;
     }
 
     return dir;
 }
 
-int dir_read(DIR *pdir, DIR_ENTRY *pentry)
+int dir_read(dir_t *pdir, dir_entry_t *pentry)
 {
     if (pdir == NULL || pentry == NULL)
     {
@@ -391,7 +406,7 @@ int dir_read(DIR *pdir, DIR_ENTRY *pentry)
         return -1;
     }
 
-    memset(pentry, 0, sizeof(DIR_ENTRY));
+    memset(pentry, 0, sizeof(dir_entry_t));
 
     void *buffer = calloc(pdir->sector_count, pdir->volume->bs.bytes_per_sector);
     if (buffer == NULL)
@@ -406,7 +421,7 @@ int dir_read(DIR *pdir, DIR_ENTRY *pentry)
         return -1;
     }
 
-    DIR_ENTRY_DATA entry_data = *((DIR_ENTRY_DATA *) buffer + pdir->current_entry++);
+    dir_entry_data_t entry_data = *((dir_entry_data_t *) buffer + pdir->current_entry++);
     if ((uint8_t) entry_data.filename[0] == 0x00)
     {
         free(buffer);
@@ -455,7 +470,7 @@ int dir_read(DIR *pdir, DIR_ENTRY *pentry)
     return 0;
 }
 
-int dir_close(DIR *pdir)
+int dir_close(dir_t *pdir)
 {
     if (pdir == NULL)
     {
@@ -463,11 +478,15 @@ int dir_close(DIR *pdir)
         return -1;
     }
 
+    if (pdir->parent_dir)
+    {
+        dir_close(pdir->parent_dir);
+    }
     free(pdir);
     return 0;
 }
 
-CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster)
+clusters_chain_t *get_clusters_chain(volume_t *pvolume, uint16_t first_cluster)
 {
     if (pvolume == NULL)
     {
@@ -493,14 +512,14 @@ CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster)
     }
 }
 
-CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster)
+clusters_chain_t *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster)
 {
     if (buffer == NULL)
     {
         return NULL;
     }
 
-    CLUSTERS_CHAIN *chain = calloc(1, sizeof(CLUSTERS_CHAIN));
+    clusters_chain_t *chain = calloc(1, sizeof(clusters_chain_t));
     if (chain == NULL)
     {
         return NULL;
@@ -543,14 +562,14 @@ CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16
     return chain;
 }
 
-CLUSTERS_CHAIN *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster)
+clusters_chain_t *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster)
 {
     if (buffer == NULL)
     {
         return NULL;
     }
 
-    CLUSTERS_CHAIN *chain = calloc(1, sizeof(CLUSTERS_CHAIN));
+    clusters_chain_t *chain = calloc(1, sizeof(clusters_chain_t));
     if (chain == NULL)
     {
         return NULL;

@@ -6,26 +6,37 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-typedef struct time_t
-{
-    uint16_t second: 5;
-    uint16_t minute: 6;
-    uint16_t hour: 5;
-} __attribute__((packed)) TIME;
-
-typedef struct date_t
-{
-    uint16_t day: 5;
-    uint16_t month: 4;
-    uint16_t year: 7;
-} __attribute__((packed)) DATE;
+typedef struct time_t time_t;
+typedef struct date_t date_t;
+typedef struct bootsector_t bootsector_t;
+typedef struct clusters_chain_t clusters_chain_t;
+typedef struct volume_t volume_t;
+typedef struct disk_t disk_t;
+typedef struct dir_t dir_t;
+typedef struct file_t file_t;
+typedef struct dir_entry_t dir_entry_t;
+typedef struct dir_entry_data_t dir_entry_data_t;
 
 typedef enum fat_type_t
 {
     FAT12, FAT16, FAT32
-} FAT_TYPE;
+} fat_type_t;
 
-typedef struct bootsector_t
+struct time_t
+{
+    uint16_t second: 5;
+    uint16_t minute: 6;
+    uint16_t hour: 5;
+} __attribute__((packed));
+
+struct date_t
+{
+    uint16_t day: 5;
+    uint16_t month: 4;
+    uint16_t year: 7;
+} __attribute__((packed));
+
+struct bootsector_t
 {
     // Assembly code instructions to jump to boot code (mandatory in bootable partition)
     uint8_t bootjmp[3];
@@ -71,33 +82,33 @@ typedef struct bootsector_t
     uint8_t boot_code[448];
     // Signature value (0xaa55)
     uint16_t signature;
-}__attribute__((packed)) BOOTSECTOR;
+}__attribute__((packed));
 
-typedef struct clusters_chain_t
+struct clusters_chain_t
 {
     uint16_t *clusters;
     size_t size;
-} CLUSTERS_CHAIN;
+};
 
-typedef struct disk_t
+struct volume_t
 {
-    FILE *file;
-    size_t size;
-} DISK;
-
-typedef struct volume_t
-{
-    DISK *disk;
-    BOOTSECTOR bs;
-    FAT_TYPE fat_type;
+    disk_t *disk;
+    bootsector_t bs;
+    fat_type_t fat_type;
     void *fat_table;
     uint32_t root_dir_sectors;
     int32_t first_data_sector;
     int32_t first_root_dir_sector;
     uint32_t cluster_size;
-} VOLUME;
+};
 
-typedef struct dir_entry_t
+struct disk_t
+{
+    FILE *file;
+    size_t size;
+};
+
+struct dir_entry_t
 {
     char name[13];
     size_t size;
@@ -107,62 +118,62 @@ typedef struct dir_entry_t
     bool is_system;
     bool is_hidden;
     bool is_directory;
-    DATE creation_date;
-    TIME creation_time;
+    date_t creation_date;
+    time_t creation_time;
     int32_t first_cluster;
-} DIR_ENTRY;
+};
 
-typedef struct dir_t
+struct dir_t
 {
-    struct dir_t *parent_dir;
-    VOLUME *volume;
-    DIR_ENTRY entry;
+    dir_t *parent_dir;
+    volume_t *volume;
+    dir_entry_t entry;
     int32_t current_entry;
     int32_t sector_count;
-} DIR;
+};
 
-typedef struct file_t
+struct file_t
 {
-    DIR *parent_dir;
-    DIR_ENTRY entry;
-    CLUSTERS_CHAIN *clusters_chain;
+    dir_t *parent_dir;
+    dir_entry_t entry;
+    clusters_chain_t *clusters_chain;
     int32_t position;
-} FILE_T;
+};
 
-typedef struct dir_entry_data_t
+struct dir_entry_data_t
 {
     char filename[11];
     uint8_t attributes;
     uint8_t reserved_windows_NT;
     uint8_t creation_time_tenths;
-    TIME creation_time;
-    DATE creation_date;
-    DATE last_access_date;
+    time_t creation_time;
+    date_t creation_date;
+    date_t last_access_date;
     uint16_t first_cluster_high;
-    TIME last_write_time;
-    DATE last_write_date;
+    time_t last_write_time;
+    date_t last_write_date;
     uint16_t first_cluster_low;
     uint32_t file_size;
-} __attribute__((packed)) DIR_ENTRY_DATA;
+} __attribute__((packed));
 
-DISK *disk_open_from_file(const char *volume_file_name);
-int disk_read(DISK *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read);
-int disk_close(DISK *pdisk);
+disk_t *disk_open_from_file(const char *volume_file_name);
+int disk_read(disk_t *pdisk, int32_t first_sector, void *buffer, int32_t sectors_to_read);
+int disk_close(disk_t *pdisk);
 
-VOLUME *fat_open(DISK *pdisk, uint32_t first_sector);
-int fat_close(VOLUME *pvolume);
+volume_t *fat_open(disk_t *pdisk, uint32_t first_sector);
+int fat_close(volume_t *pvolume);
 
-FILE_T *file_open(VOLUME *pvolume, const char *file_name);
-size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream);
-int32_t file_seek(FILE_T *stream, int32_t offset, int whence);
-int file_close(FILE_T *stream);
+file_t *file_open(volume_t *pvolume, const char *file_name);
+size_t file_read(void *ptr, size_t size, size_t nmemb, file_t *stream);
+int32_t file_seek(file_t *stream, int32_t offset, int whence);
+int file_close(file_t *stream);
 
-DIR *dir_open(VOLUME *pvolume, const char *dir_path);
-int dir_read(DIR *pdir, DIR_ENTRY *pentry);
-int dir_close(DIR *pdir);
+dir_t *dir_open(volume_t *pvolume, const char *dir_path);
+int dir_read(dir_t *pdir, dir_entry_t *pentry);
+int dir_close(dir_t *pdir);
 
-CLUSTERS_CHAIN *get_clusters_chain(VOLUME *pvolume, uint16_t first_cluster);
-CLUSTERS_CHAIN *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster);
-CLUSTERS_CHAIN *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster);
+clusters_chain_t *get_clusters_chain(volume_t *pvolume, uint16_t first_cluster);
+clusters_chain_t *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster);
+clusters_chain_t *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster);
 
 #endif //FILE_READER_H
