@@ -71,14 +71,14 @@ int disk_read(DISK_T *pdisk, int32_t first_sector, void *buffer, int32_t sectors
         return -1;
     }
 
-    if (first_sector < 0 || sectors_to_read < 0 || first_sector + sectors_to_read > (int32_t) pdisk->size / 512)
+    if (first_sector < 0 || sectors_to_read < 0 || first_sector + sectors_to_read > (int32_t)pdisk->size / 512)
     {
         errno = ERANGE;
         return -1;
     }
 
     fseek(pdisk->file, first_sector * 512, SEEK_SET);
-    if (fread(buffer, 512, sectors_to_read, pdisk->file) != (size_t) sectors_to_read)
+    if (fread(buffer, 512, sectors_to_read, pdisk->file) != (size_t)sectors_to_read)
     {
         errno = ERANGE;
         return -1;
@@ -116,7 +116,7 @@ VOLUME_T *fat_open(DISK_T *pdisk, uint32_t first_sector)
     }
 
     volume->disk = pdisk;
-    if (disk_read(pdisk, (int32_t) first_sector, &volume->bs, 1) != 1)
+    if (disk_read(pdisk, (int32_t)first_sector, &volume->bs, 1) != 1)
     {
         free(volume);
         errno = EINVAL;
@@ -300,7 +300,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
     }
 
     uint32_t cluster_size = stream->parent_dir->volume->cluster_size;
-    int32_t sectors_per_cluster = (int32_t) stream->parent_dir->volume->bs.sectors_per_cluster;
+    int32_t sectors_per_cluster = (int32_t)stream->parent_dir->volume->bs.sectors_per_cluster;
 
     void *buffer = malloc(cluster_size);
     if (buffer == NULL)
@@ -311,7 +311,7 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 
     size_t bytes_read = 0;
 
-    while (bytes_read < size * nmemb && stream->position < (int32_t) stream->entry.size)
+    while (bytes_read < size * nmemb && stream->position < (int32_t)stream->entry.size)
     {
         uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->parent_dir->volume->cluster_size];
         if (current_cluster == 0)
@@ -331,10 +331,10 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
         size_t remaining_bytes = cluster_size - offset;
         size_t bytes_to_copy = min(remaining_bytes, size * nmemb - bytes_read);
         bytes_to_copy = min(bytes_to_copy, stream->entry.size - stream->position);
-        memcpy((uint8_t *) ptr + bytes_read, (uint8_t *) buffer + offset, bytes_to_copy);
+        memcpy((uint8_t *)ptr + bytes_read, (uint8_t *)buffer + offset, bytes_to_copy);
 
         bytes_read += bytes_to_copy;
-        file_seek(stream, (int32_t) bytes_to_copy, SEEK_CUR);
+        file_seek(stream, (int32_t)bytes_to_copy, SEEK_CUR);
     }
 
     free(buffer);
@@ -362,7 +362,7 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
             break;
 
         case SEEK_END:
-            new_position = (int32_t) stream->entry.size + offset;
+            new_position = (int32_t)stream->entry.size + offset;
             break;
 
         default:
@@ -370,7 +370,7 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
             return -1;
     }
 
-    if (new_position < 0 || new_position > (int32_t) stream->entry.size)
+    if (new_position < 0 || new_position > (int32_t)stream->entry.size)
     {
         errno = ENXIO;
         return -1;
@@ -432,14 +432,14 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
         return -1;
     }
 
-    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *) buffer + pdir->current_entry++);
-    if ((uint8_t) entry_data.filename[0] == 0x00)
+    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *)buffer + pdir->current_entry++);
+    if ((uint8_t)entry_data.filename[0] == 0x00)
     {
         free(buffer);
         return 1;
     }
 
-    if ((uint8_t) entry_data.filename[0] == 0xe5)
+    if ((uint8_t)entry_data.filename[0] == 0xe5)
     {
         return dir_read(pdir, pentry);
     }
@@ -547,12 +547,12 @@ CLUSTERS_CHAIN_T *get_clusters_chain_fat16(const void *buffer, size_t size, uint
     chain->clusters[0] = first_cluster;
     chain->size = 1;
 
-    uint8_t *FAT_table = (uint8_t *) buffer;
+    uint8_t *FAT_table = (uint8_t *)buffer;
     uint16_t ent_offset = (first_cluster * 2) % size;
 
     while (1)
     {
-        uint16_t table_value = *(uint16_t *) &FAT_table[ent_offset];
+        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
         if (table_value >= 0xFFF8)
         {
             break;
@@ -598,12 +598,12 @@ CLUSTERS_CHAIN_T *get_clusters_chain_fat12(const void *buffer, size_t size, uint
     chain->size = 1;
 
     uint16_t active_cluster = first_cluster;
-    uint8_t *FAT_table = (uint8_t *) buffer;
+    uint8_t *FAT_table = (uint8_t *)buffer;
 
     while (1)
     {
         uint16_t ent_offset = (active_cluster + (active_cluster / 2)) % size;
-        uint16_t table_value = *(uint16_t *) &FAT_table[ent_offset];
+        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
         if (active_cluster & 1)
         {
             table_value = table_value >> 4;
