@@ -118,8 +118,8 @@ typedef struct dir_t
     struct dir_t *parent_dir;
     VOLUME_T *volume;
     DIR_ENTRY_T entry;
+    CLUSTERS_CHAIN_T *clusters_chain;
     int32_t current_entry;
-    int32_t sector_count;
 } DIR_T;
 
 typedef struct file_t

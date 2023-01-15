@@ -313,7 +313,8 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
 
     while (bytes_read < size * nmemb && stream->position < (int32_t)stream->entry.size)
     {
-        uint16_t current_cluster = stream->clusters_chain->clusters[stream->position / stream->parent_dir->volume->cluster_size];
+        uint16_t current_cluster = stream->clusters_chain->clusters[stream->position /
+                                                                    stream->parent_dir->volume->cluster_size];
         if (current_cluster == 0)
         {
             break;
@@ -382,34 +383,123 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
 
 DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
 {
-    if (pvolume == NULL)
+    if (pvolume == NULL || dir_path == NULL)
     {
         errno = EFAULT;
         return NULL;
     }
 
-    DIR_T *dir = calloc(1, sizeof(DIR_T));
-    if (dir == NULL)
+    if (pvolume->root_dir == NULL)
     {
-        errno = ENOMEM;
-        return NULL;
+        pvolume->root_dir = calloc(1, sizeof(DIR_T));
+        if (pvolume->root_dir == NULL)
+        {
+            errno = ENOMEM;
+            return NULL;
+        }
+
+        pvolume->root_dir->volume = pvolume;
+        pvolume->root_dir->entry.first_cluster = pvolume->first_root_dir_sector;
+        pvolume->root_dir->entry.name[0] = '\\';
+        pvolume->root_dir->entry.is_directory = true;
     }
 
-    if (strcmp(dir_path, "/") == 0 || strcmp(dir_path, "\\") == 0 || strcmp(dir_path, "") == 0)
+    if (strcmp(dir_path, "\\") == 0 || strcmp(dir_path, "/") == 0 || strcmp(dir_path, "") == 0)
     {
+        return pvolume->root_dir;
+    }
+
+    DIR_T *parent_dir = pvolume->root_dir;
+    while (true)
+    {
+        if (dir_path[0] == '\\' || dir_path[0] == '/')
+        {
+            dir_path++;
+        }
+
+        char *slash = strchr(dir_path, '\\');
+        if (slash == NULL)
+        {
+            slash = strchr(dir_path, '/');
+        }
+
+        if (slash == NULL)
+        {
+            break;
+        }
+
+        char *dir_name = strndup(dir_path, slash - dir_path);
+        if (dir_name == NULL)
+        {
+            errno = ENOMEM;
+            return NULL;
+        }
+
+        if (strcmp(dir_name, ".") == 0)
+        {
+            free(dir_name);
+            dir_path = slash + 1;
+            continue;
+        }
+
+        if (strcmp(dir_name, "..") == 0)
+        {
+            free(dir_name);
+            dir_path = slash + 1;
+            DIR_T *parent = parent_dir->parent_dir;
+            free(parent_dir);
+            parent_dir = parent;
+            if (parent_dir == NULL)
+            {
+                parent_dir = pvolume->root_dir;
+            }
+            continue;
+        }
+
+        DIR_T *dir = calloc(1, sizeof(DIR_T));
+        if (dir == NULL)
+        {
+            free(dir_name);
+            errno = ENOMEM;
+            return NULL;
+        }
+
         dir->volume = pvolume;
-        dir->sector_count = (int32_t)pvolume->root_dir_sectors;
-        dir->entry.first_cluster = pvolume->first_root_dir_sector;
-        dir->entry.size = dir->sector_count * pvolume->bs.bytes_per_sector;
-        dir->entry.name[0] = '\\';
-        dir->entry.is_directory = true;
-        pvolume->root_dir = dir;
+        dir->parent_dir = parent_dir;
+
+        while (dir_read(parent_dir, &dir->entry) == 0)
+        {
+            if (strcasecmp(dir_name, dir->entry.name) == 0)
+            {
+                if (!dir->entry.is_directory)
+                {
+                    free(dir_name);
+                    dir_close(dir);
+                    errno = ENOTDIR;
+                    return NULL;
+                }
+
+                break;
+            }
+        }
+
+        dir->clusters_chain = get_clusters_chain(pvolume, dir->entry.first_cluster);
+        if (dir->clusters_chain == NULL)
+        {
+            free(dir_name);
+            dir_close(dir);
+            return NULL;
+        }
+
+        free(dir_name);
+        dir_path = slash;
+        parent_dir = dir;
     }
 
-    return dir;
+    return parent_dir;
 }
 
-int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
+int root_dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
 {
     if (pdir == NULL || pentry == NULL)
     {
@@ -417,22 +507,26 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
         return -1;
     }
 
+    int32_t secotr_size = pdir->volume->bs.bytes_per_sector;
+
     memset(pentry, 0, sizeof(DIR_ENTRY_T));
 
-    void *buffer = calloc(pdir->sector_count, pdir->volume->bs.bytes_per_sector);
+    void *buffer = calloc(1, secotr_size);
     if (buffer == NULL)
     {
         return -1;
     }
 
-    int result = disk_read(pdir->volume->disk, pdir->entry.first_cluster, buffer, pdir->sector_count);
-    if (result != pdir->sector_count)
+    int32_t secotr_to_read = pdir->entry.first_cluster + pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / secotr_size;
+
+    int result = disk_read(pdir->volume->disk, secotr_to_read, buffer, 1);
+    if (result != 1)
     {
         free(buffer);
         return -1;
     }
 
-    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *)buffer + pdir->current_entry++);
+    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *)buffer + (pdir->current_entry++) % (secotr_size / sizeof(DIR_ENTRY_DATA_T)));
     if ((uint8_t)entry_data.filename[0] == 0x00)
     {
         free(buffer);
@@ -481,6 +575,24 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
     return 0;
 }
 
+int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
+{
+    if (pdir == NULL || pentry == NULL)
+    {
+        errno = EFAULT;
+        return -1;
+    }
+
+    // Root dir.
+    if (pdir->parent_dir == NULL)
+    {
+        return root_dir_read(pdir, pentry);
+    }
+
+    // TODO: handle subdirectories.
+    return 0;
+}
+
 int dir_close(DIR_T *pdir)
 {
     if (pdir == NULL)
@@ -493,6 +605,11 @@ int dir_close(DIR_T *pdir)
     if (pdir->parent_dir != pdir->volume->root_dir)
     {
         dir_close(pdir->parent_dir);
+    }
+    if (pdir->clusters_chain)
+    {
+        free(pdir->clusters_chain->clusters);
+        free(pdir->clusters_chain);
     }
     free(pdir);
     return 0;
@@ -510,13 +627,11 @@ CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster)
     {
         case FAT12:
             return get_clusters_chain_fat12(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
-                                            first_cluster);
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
 
         case FAT16:
             return get_clusters_chain_fat16(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector,
-                                            first_cluster);
+                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
 
         default:
             errno = EINVAL;
