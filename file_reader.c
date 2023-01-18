@@ -245,10 +245,7 @@ FILE_T *file_open(VOLUME_T *pvolume, const char *file_name)
         {
             if (file->entry.is_directory || file->entry.is_volume_label)
             {
-                dir_close(dir);
-                free(file);
-                errno = EISDIR;
-                return NULL;
+                continue;
             }
 
             // Load clusters chain.
@@ -264,7 +261,11 @@ FILE_T *file_open(VOLUME_T *pvolume, const char *file_name)
         }
     }
 
-    dir_close(dir);
+    if (dir != pvolume->root_dir)
+    {
+        dir_close(dir);
+    }
+
     errno = ENOENT;
     return NULL;
 }
@@ -424,9 +425,13 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
             slash = strchr(dir_path, '/');
         }
 
-        if (slash == NULL)
+        if (slash == NULL && dir_path[0] == '\0')
         {
             break;
+        }
+        else
+        {
+            slash = slash == NULL ? strchr(dir_path, '\0') : slash;
         }
 
         char *dir_name = strndup(dir_path, slash - dir_path);
@@ -485,15 +490,22 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
             }
         }
 
+        free(dir_name);
+        if (dir->entry.name[0] == '\0')
+        {
+
+            dir_close(dir);
+            errno = ENOENT;
+            return NULL;
+        }
+
         dir->clusters_chain = get_clusters_chain(pvolume, dir->entry.first_cluster);
         if (dir->clusters_chain == NULL)
         {
-            free(dir_name);
             dir_close(dir);
             return NULL;
         }
 
-        free(dir_name);
         dir_path = slash;
         parent_dir = dir;
     }
@@ -685,6 +697,11 @@ int dir_close(DIR_T *pdir)
     {
         free(pdir->clusters_chain->clusters);
         free(pdir->clusters_chain);
+    }
+
+    if (pdir == pdir->volume->root_dir)
+    {
+        pdir->volume->root_dir = NULL;
     }
     free(pdir);
     return 0;
