@@ -21,9 +21,9 @@ int32_t get_cluster_first_sector(VOLUME_T *volume, uint16_t cluster)
     return ((cluster - 2) * volume->bs.sectors_per_cluster) + volume->first_data_sector;
 }
 
-int compare_filenames(const char *str, const char *prefix)
+int compare_filenames(const DIR_ENTRY_T *entry, const char *prefix)
 {
-    return strncasecmp(str, prefix, strlen(prefix));
+    return strncasecmp(entry->has_long_name ? entry->long_name : entry->name, prefix, strlen(prefix));
 }
 
 char *get_filename(const char *path)
@@ -241,12 +241,11 @@ FILE_T *file_open(VOLUME_T *pvolume, const char *file_name)
     }
 
     file->parent_dir = dir;
-    file->parent_dir->volume = pvolume;
 
     dir->current_entry = 0;
     while (dir_read(dir, &file->entry) == 0)
     {
-        if (compare_filenames(file->entry.name, name) == 0)
+        if (compare_filenames(&file->entry, name) == 0)
         {
             if (file->entry.is_directory || file->entry.is_volume_label)
             {
@@ -481,7 +480,7 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
         parent_dir->current_entry = 0;
         while (dir_read(parent_dir, &dir->entry) == 0)
         {
-            if (strcasecmp(dir_name, dir->entry.name) == 0)
+            if (compare_filenames(&dir->entry, dir_name) == 0)
             {
                 if (!dir->entry.is_directory)
                 {
@@ -518,78 +517,50 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
     return parent_dir;
 }
 
-int root_dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
+int dir_read_entry(DIR_T *pdir, DIR_ENTRY_DATA_T *entry_data)
 {
-    if (pdir == NULL || pentry == NULL)
+    if (pdir == NULL || entry_data == NULL)
     {
         errno = EFAULT;
         return -1;
     }
 
-    int32_t secotr_size = pdir->volume->bs.bytes_per_sector;
+    memset(entry_data, 0, sizeof(DIR_ENTRY_DATA_T));
+    int32_t sector_size = pdir->volume->bs.bytes_per_sector;
 
-    memset(pentry, 0, sizeof(DIR_ENTRY_T));
-
-    void *buffer = calloc(1, secotr_size);
+    void *buffer = calloc(1, sector_size);
     if (buffer == NULL)
     {
         return -1;
     }
 
-    int32_t secotr_to_read = pdir->entry.first_cluster + pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / secotr_size;
+    int32_t sector_to_read;
+    if (pdir == pdir->volume->root_dir)
+    {
+        sector_to_read = pdir->entry.first_cluster + pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / sector_size;
+    }
+    else
+    {
+        size_t cluster_idx = pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / pdir->volume->cluster_size;
+        uint16_t current_cluster = pdir->clusters_chain->clusters[cluster_idx];
+        if (current_cluster == 0)
+        {
+            free(buffer);
+            return 1;
+        }
 
-    int result = disk_read(pdir->volume->disk, secotr_to_read, buffer, 1);
+        sector_to_read = get_cluster_first_sector(pdir->parent_dir->volume, current_cluster);
+    }
+
+    int result = disk_read(pdir->volume->disk, sector_to_read, buffer, 1);
     if (result != 1)
     {
         free(buffer);
         return -1;
     }
 
-    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *)buffer + (pdir->current_entry++) % (secotr_size / sizeof(DIR_ENTRY_DATA_T)));
+    *entry_data = *((DIR_ENTRY_DATA_T *)buffer + (pdir->current_entry++) % (sector_size / sizeof(DIR_ENTRY_DATA_T)));
     free(buffer);
-
-    if ((uint8_t)entry_data.filename[0] == 0x00)
-    {
-        return 1;
-    }
-
-    if ((uint8_t)entry_data.filename[0] == 0xe5)
-    {
-        return dir_read(pdir, pentry);
-    }
-
-    int i;
-    for (i = 0; i < 8; i++)
-    {
-        if (entry_data.filename[i] == ' ')
-        {
-            break;
-        }
-        pentry->name[i] = entry_data.filename[i];
-    }
-    if (entry_data.filename[8] != ' ')
-    {
-        pentry->name[i++] = '.';
-        for (int j = 8; j < 11; j++)
-        {
-            if (entry_data.filename[j] == ' ')
-            {
-                break;
-            }
-            pentry->name[i++] = entry_data.filename[j];
-        }
-    }
-
-    pentry->size = entry_data.file_size;
-    pentry->is_readonly = entry_data.attributes & 0x01;
-    pentry->is_hidden = entry_data.attributes & 0x02;
-    pentry->is_system = entry_data.attributes & 0x04;
-    pentry->is_volume_label = entry_data.attributes & 0x08;
-    pentry->is_directory = entry_data.attributes & 0x10;
-    pentry->is_archived = entry_data.attributes & 0x20;
-    pentry->creation_date = entry_data.creation_date;
-    pentry->creation_time = entry_data.creation_time;
-    pentry->first_cluster = entry_data.first_cluster_low;
     return 0;
 }
 
@@ -601,43 +572,14 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
         return -1;
     }
 
-    // Root dir.
-    if (pdir->parent_dir == NULL)
-    {
-        return root_dir_read(pdir, pentry);
-    }
-
-    // Check if we are at the end of the directory.
-    if (pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) >= pdir->clusters_chain->size * pdir->volume->cluster_size)
-    {
-        return 1;
-    }
-
     memset(pentry, 0, sizeof(DIR_ENTRY_T));
 
-    int32_t secotr_size = pdir->volume->bs.bytes_per_sector;
-
-    void *buffer = calloc(1, secotr_size);
-    if (buffer == NULL)
+    DIR_ENTRY_DATA_T entry_data;
+    int result = dir_read_entry(pdir, &entry_data);
+    if (result != 0)
     {
-        return -1;
+        return result;
     }
-
-    uint16_t *clusters = pdir->clusters_chain->clusters;
-
-    uint16_t cluster_to_read = clusters[pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / pdir->volume->cluster_size];
-    uint8_t sector_idx = (pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) % pdir->volume->cluster_size) / secotr_size;
-    int32_t sector = get_cluster_first_sector(pdir->volume, cluster_to_read) + sector_idx;
-
-    int result = disk_read(pdir->volume->disk, (int32_t)sector, buffer, 1);
-    if (result != 1)
-    {
-        free(buffer);
-        return -1;
-    }
-
-    DIR_ENTRY_DATA_T entry_data = *((DIR_ENTRY_DATA_T *)buffer + (pdir->current_entry++) % (secotr_size / sizeof(DIR_ENTRY_DATA_T)));
-    free(buffer);
 
     if ((uint8_t)entry_data.filename[0] == 0x00)
     {
@@ -649,11 +591,48 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
         return dir_read(pdir, pentry);
     }
 
-    int i;
-    for (i = 0; i < 8; i++)
+    // Check if 8.3 entry or LFN
+    if ((entry_data.attributes & 0x0F) == 0x0F)
     {
-        if (entry_data.filename[i] == ' ')
+        // LFN
+        pentry->has_long_name = true;
+
+        do
         {
+            LFN_T lfn = *((LFN_T *)&entry_data);
+
+            int seq_num = lfn.sequence_number & 0x3F;  // remove 0x40.
+
+            for (int i = 0; i < 5; i++)
+            {
+                pentry->long_name[(seq_num - 1) * 13 + i] = (char)lfn.name1[i];
+            }
+
+            for (int i = 0; i < 6; i++)
+            {
+                pentry->long_name[(seq_num - 1) * 13 + i + 5] = (char)lfn.name2[i];
+            }
+
+            for (int i = 0; i < 2; i++)
+            {
+                pentry->long_name[(seq_num - 1) * 13 + i + 11] = (char)lfn.name3[i];
+            }
+
+            result = dir_read_entry(pdir, &entry_data);
+            if (result != 0)
+            {
+                return result;
+            }
+
+        } while ((entry_data.attributes & 0x0F) == 0x0F);
+    }
+
+    // 8.3 entry
+    pdir->entry.long_name[0] = '\0';
+
+    int i;
+    for (i = 0; i < 8; i++) {
+        if (entry_data.filename[i] == ' ') {
             break;
         }
         pentry->name[i] = entry_data.filename[i];
@@ -682,6 +661,11 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
     pentry->creation_time = entry_data.creation_time;
     pentry->first_cluster = entry_data.first_cluster_low;
 
+    if (pentry->is_volume_label)
+    {
+        memcpy(pdir->volume->label, pentry->name, 11);
+        return dir_read(pdir, pentry);
+    }
     return 0;
 }
 

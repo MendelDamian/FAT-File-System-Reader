@@ -85,12 +85,25 @@ typedef struct volume_t
     BOOTSECTOR_T bs;
     FAT_TYPE_T fat_type;
     void *fat_table;
+    char label[12];
     struct dir_t *root_dir;
     uint32_t root_dir_sectors;
     int32_t first_data_sector;
     int32_t first_root_dir_sector;
     uint32_t cluster_size;
 } VOLUME_T;
+
+typedef struct long_file_name_t
+{
+    uint8_t sequence_number;
+    uint16_t name1[5];
+    uint8_t attributes;
+    uint8_t type;
+    uint8_t checksum;
+    uint16_t name2[6];
+    uint16_t first_cluster;
+    uint16_t name3[2];
+} __attribute__((packed)) LFN_T;
 
 typedef struct disk_t
 {
@@ -100,7 +113,7 @@ typedef struct disk_t
 
 typedef struct dir_entry_t
 {
-    char name[13];
+    char name[12];
     size_t size;
     bool is_archived;
     bool is_readonly;
@@ -111,6 +124,8 @@ typedef struct dir_entry_t
     DATE_T creation_date;
     TIME_T creation_time;
     int32_t first_cluster;
+    bool has_long_name;
+    char long_name[256];
 } DIR_ENTRY_T;
 
 typedef struct dir_t
