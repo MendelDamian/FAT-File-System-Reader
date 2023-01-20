@@ -660,6 +660,9 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
     pentry->is_archived = entry_data.attributes & 0x20;
     pentry->creation_date = entry_data.creation_date;
     pentry->creation_time = entry_data.creation_time;
+    pentry->last_access_date = entry_data.last_access_date;
+    pentry->last_write_date = entry_data.last_write_date;
+    pentry->last_write_time = entry_data.last_write_time;
     pentry->first_cluster = entry_data.first_cluster_low;
 
     if (pentry->is_volume_label)
@@ -678,11 +681,12 @@ int dir_close(DIR_T *pdir)
         return -1;
     }
 
-    // Since root directory belongs to the volume, we don't free it.
+    // Free hierarchy until root dir.
     if (pdir->parent_dir != pdir->volume->root_dir)
     {
         dir_close(pdir->parent_dir);
     }
+
     if (pdir->clusters_chain)
     {
         free(pdir->clusters_chain->clusters);
@@ -693,6 +697,7 @@ int dir_close(DIR_T *pdir)
     {
         pdir->volume->root_dir = NULL;
     }
+
     free(pdir);
     return 0;
 }

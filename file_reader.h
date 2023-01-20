@@ -123,6 +123,9 @@ typedef struct dir_entry_t
     bool is_directory;
     DATE_T creation_date;
     TIME_T creation_time;
+    TIME_T last_write_time;
+    DATE_T last_write_date;
+    DATE_T last_access_date;
     int32_t first_cluster;
     bool has_long_name;
     char long_name[256];
