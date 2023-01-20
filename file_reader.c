@@ -387,6 +387,122 @@ int32_t file_seek(FILE_T *stream, int32_t offset, int whence)
     return stream->position;
 }
 
+void init_root(VOLUME_T *pvolume)
+{
+    if (pvolume->root_dir)
+    {
+        return;
+    }
+
+    pvolume->root_dir = calloc(1, sizeof(DIR_T));
+    if (pvolume->root_dir == NULL)
+    {
+        errno = ENOMEM;
+        return;
+    }
+
+    pvolume->root_dir->volume = pvolume;
+    pvolume->root_dir->entry.first_cluster = pvolume->first_root_dir_sector;
+    pvolume->root_dir->entry.name[0] = '\\';
+    pvolume->root_dir->entry.is_directory = true;
+}
+
+bool is_root_path(const char *path)
+{
+    return strcmp(path, "\\") == 0 || strcmp(path, "/") == 0 || strcmp(path, "") == 0;
+}
+
+DIR_T *find_sub_directory(DIR_T *parent, const char *name)
+{
+    DIR_T *dir = calloc(1, sizeof(DIR_T));
+    if (dir == NULL)
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    dir->volume = parent->volume;
+    dir->parent_dir = parent;
+
+    parent->current_entry = 0;
+    while (dir_read(parent, &dir->entry) == 0)
+    {
+        if (compare_filenames(&dir->entry, name) == 0)
+        {
+            if (!dir->entry.is_directory)
+            {
+                dir_close(dir);
+                errno = ENOTDIR;
+                return NULL;
+            }
+            break;
+        }
+    }
+    if (dir->entry.name[0] == '\0')
+    {
+        dir_close(dir);
+        errno = ENOENT;
+        return NULL;
+    }
+
+    dir->clusters_chain = get_clusters_chain(dir->volume, dir->entry.first_cluster);
+    if (dir->clusters_chain == NULL)
+    {
+        dir_close(dir);
+        return NULL;
+    }
+
+    return dir;
+}
+
+int handle_dir_name(const char *name)
+{
+    if (strcmp(name, ".") == 0)
+    {
+        return 0;
+    }
+
+    if (strcmp(name, "..") == 0)
+    {
+        return 1;
+    }
+
+    return 2;
+}
+
+char *extract_dir_name(const char *dir_path, char **end)
+{
+    while (*dir_path == '\\' || *dir_path == '/')
+    {
+        dir_path++;
+    }
+
+    *end = strchr(dir_path, '\\');
+    if (*end == NULL)
+    {
+        *end = strchr(dir_path, '/');
+    }
+
+    if (*end == NULL && *dir_path == '\0')
+    {
+        return NULL;
+    }
+
+    if (*end == NULL)
+    {
+        *end = strchr(dir_path, '\0');
+    }
+
+    char *dir_name = strndup(dir_path, *end - dir_path);
+    if (dir_name == NULL)
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    return dir_name;
+}
+
 DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
 {
     if (pvolume == NULL || dir_path == NULL)
@@ -395,126 +511,49 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
         return NULL;
     }
 
+    init_root(pvolume);
     if (pvolume->root_dir == NULL)
     {
-        pvolume->root_dir = calloc(1, sizeof(DIR_T));
-        if (pvolume->root_dir == NULL)
-        {
-            errno = ENOMEM;
-            return NULL;
-        }
-
-        pvolume->root_dir->volume = pvolume;
-        pvolume->root_dir->entry.first_cluster = pvolume->first_root_dir_sector;
-        pvolume->root_dir->entry.name[0] = '\\';
-        pvolume->root_dir->entry.is_directory = true;
+        return NULL;
     }
 
-    if (strcmp(dir_path, "\\") == 0 || strcmp(dir_path, "/") == 0 || strcmp(dir_path, "") == 0)
+    if (is_root_path(dir_path))
     {
         return pvolume->root_dir;
     }
 
-    DIR_T *parent_dir = pvolume->root_dir;
-    while (true)
+    DIR_T *current_dir = pvolume->root_dir;
+
+    char *end = NULL;
+    char *dir_name = extract_dir_name(dir_path, &end);
+
+    while (dir_name)
     {
-        if (dir_path[0] == '\\' || dir_path[0] == '/')
-        {
-            dir_path++;
-        }
+        switch (handle_dir_name(dir_name)) {
+            case 0: // case "."
+                break;
 
-        char *slash = strchr(dir_path, '\\');
-        if (slash == NULL)
-        {
-            slash = strchr(dir_path, '/');
-        }
+            case 1: // case ".."
+                current_dir = current_dir->parent_dir;
+                if (current_dir == NULL)
+                {
+                    current_dir = pvolume->root_dir;
+                }
+                break;
 
-        if (slash == NULL && dir_path[0] == '\0')
-        {
-            break;
-        }
-        else
-        {
-            slash = slash == NULL ? strchr(dir_path, '\0') : slash;
-        }
-
-        char *dir_name = strndup(dir_path, slash - dir_path);
-        if (dir_name == NULL)
-        {
-            errno = ENOMEM;
-            return NULL;
-        }
-
-        if (strcmp(dir_name, ".") == 0)
-        {
-            free(dir_name);
-            dir_path = slash + 1;
-            continue;
-        }
-
-        if (strcmp(dir_name, "..") == 0)
-        {
-            free(dir_name);
-            dir_path = slash + 1;
-            DIR_T *parent = parent_dir->parent_dir;
-            free(parent_dir);
-            parent_dir = parent;
-            if (parent_dir == NULL)
-            {
-                parent_dir = pvolume->root_dir;
-            }
-            continue;
-        }
-
-        DIR_T *dir = calloc(1, sizeof(DIR_T));
-        if (dir == NULL)
-        {
-            free(dir_name);
-            errno = ENOMEM;
-            return NULL;
-        }
-
-        dir->volume = pvolume;
-        dir->parent_dir = parent_dir;
-
-        parent_dir->current_entry = 0;
-        while (dir_read(parent_dir, &dir->entry) == 0)
-        {
-            if (compare_filenames(&dir->entry, dir_name) == 0)
-            {
-                if (!dir->entry.is_directory)
+            default: // case other
+                current_dir = find_sub_directory(current_dir, dir_name);
+                if (current_dir == NULL)
                 {
                     free(dir_name);
-                    dir_close(dir);
-                    errno = ENOTDIR;
                     return NULL;
                 }
-
-                break;
-            }
         }
 
         free(dir_name);
-        if (dir->entry.name[0] == '\0')
-        {
-
-            dir_close(dir);
-            errno = ENOENT;
-            return NULL;
-        }
-
-        dir->clusters_chain = get_clusters_chain(pvolume, dir->entry.first_cluster);
-        if (dir->clusters_chain == NULL)
-        {
-            dir_close(dir);
-            return NULL;
-        }
-
-        dir_path = slash;
-        parent_dir = dir;
+        dir_name = extract_dir_name(end, &end);
     }
-
-    return parent_dir;
+    return current_dir;
 }
 
 int dir_read_entry(DIR_T *pdir, DIR_ENTRY_DATA_T *entry_data)
