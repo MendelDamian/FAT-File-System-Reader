@@ -6,6 +6,11 @@
 #include <errno.h>
 #include <string.h>
 
+#define FAT12_END_VALUE 0xFF8
+#define FAT16_END_VALUE 0xFFF8
+
+typedef uint16_t(*get_next_cluster_fn_t)(const void *buffer, size_t size, uint16_t cluster);
+
 size_t min(size_t a, size_t b)
 {
     return a < b ? a : b;
@@ -707,6 +712,39 @@ int dir_close(DIR_T *pdir)
     return 0;
 }
 
+uint16_t get_next_cluster_fat12(const void *buffer, size_t size, uint16_t cluster)
+{
+    if (buffer == NULL)
+    {
+        errno = EFAULT;
+        return 0;
+    }
+    uint8_t *FAT_table = (uint8_t *)buffer;
+    uint16_t ent_offset = (cluster + (cluster / 2)) % size;
+    uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
+    if (cluster & 1)
+    {
+        table_value = table_value >> 4;
+    }
+    else
+    {
+        table_value = table_value & 0x0FFF;
+    }
+    return table_value;
+}
+
+uint16_t get_next_cluster_fat16(const void *buffer, size_t size, uint16_t cluster)
+{
+    if (buffer == NULL)
+    {
+        errno = EFAULT;
+        return 0;
+    }
+    uint8_t *FAT_table = (uint8_t *)buffer;
+    uint16_t ent_offset = (cluster * 2) % size;
+    return *(uint16_t *)&FAT_table[ent_offset];
+}
+
 CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster)
 {
     if (pvolume == NULL)
@@ -715,79 +753,27 @@ CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster)
         return NULL;
     }
 
-    switch (pvolume->fat_type)
+    get_next_cluster_fn_t get_next_cluster_fn;
+    uint16_t end_cluster;
+
+    switch(pvolume->fat_type)
     {
         case FAT12:
-            return get_clusters_chain_fat12(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
+            get_next_cluster_fn = &get_next_cluster_fat12;
+            end_cluster = FAT12_END_VALUE;
+            break;
 
         case FAT16:
-            return get_clusters_chain_fat16(pvolume->fat_table,
-                                            pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector, first_cluster);
+            get_next_cluster_fn = &get_next_cluster_fat16;
+            end_cluster = FAT16_END_VALUE;
+            break;
 
         default:
             errno = EINVAL;
             return NULL;
     }
-}
 
-CLUSTERS_CHAIN_T *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster)
-{
-    if (buffer == NULL)
-    {
-        return NULL;
-    }
-
-    CLUSTERS_CHAIN_T *chain = calloc(1, sizeof(CLUSTERS_CHAIN_T));
-    if (chain == NULL)
-    {
-        return NULL;
-    }
-
-    chain->clusters = malloc(sizeof(uint16_t));
-    if (chain->clusters == NULL)
-    {
-        free(chain);
-        return NULL;
-    }
-
-    chain->clusters[0] = first_cluster;
-    chain->size = 1;
-
-    uint8_t *FAT_table = (uint8_t *)buffer;
-    uint16_t ent_offset = (first_cluster * 2) % size;
-
-    while (1)
-    {
-        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
-        if (table_value >= 0xFFF8)
-        {
-            break;
-        }
-
-        uint16_t *new_clusters = realloc(chain->clusters, (chain->size + 1) * sizeof(uint16_t));
-        if (new_clusters == NULL)
-        {
-            free(chain->clusters);
-            free(chain);
-            return NULL;
-        }
-        chain->clusters = new_clusters;
-
-        chain->clusters[chain->size++] = table_value;
-        ent_offset = (table_value * 2) % size;
-    }
-
-    return chain;
-}
-
-CLUSTERS_CHAIN_T *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster)
-{
-    if (buffer == NULL)
-    {
-        return NULL;
-    }
-
+    size_t fat_table_size = pvolume->bs.table_size_16 * pvolume->bs.bytes_per_sector;
     CLUSTERS_CHAIN_T *chain = calloc(1, sizeof(CLUSTERS_CHAIN_T));
     if (chain == NULL)
     {
@@ -805,22 +791,10 @@ CLUSTERS_CHAIN_T *get_clusters_chain_fat12(const void *buffer, size_t size, uint
     chain->size = 1;
 
     uint16_t active_cluster = first_cluster;
-    uint8_t *FAT_table = (uint8_t *)buffer;
-
     while (1)
     {
-        uint16_t ent_offset = (active_cluster + (active_cluster / 2)) % size;
-        uint16_t table_value = *(uint16_t *)&FAT_table[ent_offset];
-        if (active_cluster & 1)
-        {
-            table_value = table_value >> 4;
-        }
-        else
-        {
-            table_value = table_value & 0x0FFF;
-        }
-
-        if (table_value >= 0xFF8)
+        uint16_t table_value = get_next_cluster_fn(pvolume->fat_table, fat_table_size, active_cluster);
+        if (table_value >= end_cluster)
         {
             break;
         }
