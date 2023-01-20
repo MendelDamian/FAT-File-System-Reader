@@ -23,7 +23,7 @@ int32_t get_cluster_first_sector(VOLUME_T *volume, uint16_t cluster)
 
 int compare_filenames(const DIR_ENTRY_T *entry, const char *prefix)
 {
-    return strncasecmp(entry->has_long_name ? entry->long_name : entry->name, prefix, strlen(prefix));
+    return strcasecmp(entry->has_long_name ? entry->long_name : entry->name, prefix);
 }
 
 char *get_filename(const char *path)
@@ -549,7 +549,8 @@ int dir_read_entry(DIR_T *pdir, DIR_ENTRY_DATA_T *entry_data)
             return 1;
         }
 
-        sector_to_read = get_cluster_first_sector(pdir->parent_dir->volume, current_cluster);
+        size_t sector_idx = (pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) % pdir->volume->cluster_size) / sector_size;
+        sector_to_read = get_cluster_first_sector(pdir->parent_dir->volume, current_cluster) + sector_idx;
     }
 
     int result = disk_read(pdir->volume->disk, sector_to_read, buffer, 1);
