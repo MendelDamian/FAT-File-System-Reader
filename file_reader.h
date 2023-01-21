@@ -133,7 +133,6 @@ typedef struct dir_entry_t
 
 typedef struct dir_t
 {
-    struct dir_t *parent_dir;
     VOLUME_T *volume;
     DIR_ENTRY_T entry;
     CLUSTERS_CHAIN_T *clusters_chain;

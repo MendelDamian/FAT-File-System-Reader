@@ -176,8 +176,8 @@ VOLUME_T *fat_open(DISK_T *pdisk, uint32_t first_sector)
     }
 
     volume->root_dir_sectors = ((bs->root_entry_count * 32) + (bs->bytes_per_sector - 1)) / bs->bytes_per_sector;
-    volume->first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + volume->root_dir_sectors;
-    volume->first_root_dir_sector = volume->first_data_sector - volume->root_dir_sectors;
+    volume->first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + (int32_t)volume->root_dir_sectors;
+    volume->first_root_dir_sector = volume->first_data_sector - (int32_t)volume->root_dir_sectors;
     volume->cluster_size = bs->bytes_per_sector * bs->sectors_per_cluster;
 
     return volume;
@@ -422,7 +422,6 @@ DIR_T *find_sub_directory(DIR_T *parent, const char *name)
     }
 
     dir->volume = parent->volume;
-    dir->parent_dir = parent;
 
     parent->current_entry = 0;
     while (dir_read(parent, &dir->entry) == 0)
@@ -450,6 +449,13 @@ DIR_T *find_sub_directory(DIR_T *parent, const char *name)
     {
         dir_close(dir);
         return NULL;
+    }
+
+    // It's a root directory, which has no clusters chain
+    if (dir->clusters_chain->clusters[0] == 0)
+    {
+        dir_close(dir);
+        dir = parent->volume->root_dir;
     }
 
     return dir;
@@ -534,7 +540,7 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path)
                 break;
 
             case 1: // case ".."
-                current_dir = current_dir->parent_dir;
+                current_dir = find_sub_directory(current_dir, dir_name);
                 if (current_dir == NULL)
                 {
                     current_dir = pvolume->root_dir;
@@ -567,29 +573,33 @@ int dir_read_entry(DIR_T *pdir, DIR_ENTRY_DATA_T *entry_data)
     memset(entry_data, 0, sizeof(DIR_ENTRY_DATA_T));
     int32_t sector_size = pdir->volume->bs.bytes_per_sector;
 
-    void *buffer = calloc(1, sector_size);
-    if (buffer == NULL)
-    {
-        return -1;
-    }
-
     int32_t sector_to_read;
     if (pdir == pdir->volume->root_dir)
     {
-        sector_to_read = pdir->entry.first_cluster + pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / sector_size;
+        sector_to_read = pdir->entry.first_cluster + pdir->current_entry * (int32_t)sizeof(DIR_ENTRY_DATA_T) / sector_size;
     }
     else
     {
         size_t cluster_idx = pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) / pdir->volume->cluster_size;
-        uint16_t current_cluster = pdir->clusters_chain->clusters[cluster_idx];
-        if (current_cluster == 0)
+        if (cluster_idx >= pdir->clusters_chain->size)
         {
-            free(buffer);
             return 1;
         }
 
-        size_t sector_idx = (pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) % pdir->volume->cluster_size) / sector_size;
-        sector_to_read = get_cluster_first_sector(pdir->parent_dir->volume, current_cluster) + sector_idx;
+        uint16_t current_cluster = pdir->clusters_chain->clusters[cluster_idx];
+        if (current_cluster == 0)
+        {
+            return 1;
+        }
+
+        int32_t sector_idx = (int32_t)(pdir->current_entry * sizeof(DIR_ENTRY_DATA_T) % pdir->volume->cluster_size) / sector_size;
+        sector_to_read = get_cluster_first_sector(pdir->volume, current_cluster) + sector_idx;
+    }
+
+    void *buffer = calloc(1, sector_size);
+    if (buffer == NULL)
+    {
+        return -1;
     }
 
     int result = disk_read(pdir->volume->disk, sector_to_read, buffer, 1);
@@ -718,12 +728,6 @@ int dir_close(DIR_T *pdir)
     {
         errno = EFAULT;
         return -1;
-    }
-
-    // Free hierarchy until root dir.
-    if (pdir->parent_dir != pdir->volume->root_dir)
-    {
-        dir_close(pdir->parent_dir);
     }
 
     if (pdir->clusters_chain)
