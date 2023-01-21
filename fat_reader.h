@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <errno.h>
 
 typedef enum fat_type_t
 {
