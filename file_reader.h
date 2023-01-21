@@ -101,7 +101,7 @@ typedef struct long_file_name_t
     uint8_t type;
     uint8_t checksum;
     uint16_t name2[6];
-    uint16_t first_cluster;
+    uint16_t reserved;
     uint16_t name3[2];
 } __attribute__((packed)) LFN_T;
 
@@ -181,7 +181,5 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry);
 int dir_close(DIR_T *pdir);
 
 CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster);
-CLUSTERS_CHAIN_T *get_clusters_chain_fat16(const void *buffer, size_t size, uint16_t first_cluster);
-CLUSTERS_CHAIN_T *get_clusters_chain_fat12(const void *buffer, size_t size, uint16_t first_cluster);
 
 #endif //FILE_READER_H
