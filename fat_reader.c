@@ -1,6 +1,4 @@
-#include "file_reader.h"
-#include "tested_declarations.h"
-#include "rdebug.h"
+#include "fat_reader.h"
 
 #include <stdlib.h>
 #include <errno.h>
@@ -8,6 +6,8 @@
 
 #define FAT12_END_VALUE 0xFF8
 #define FAT16_END_VALUE 0xFFF8
+
+CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster);
 
 typedef uint16_t(*get_next_cluster_fn_t)(const void *buffer, size_t size, uint16_t cluster);
 

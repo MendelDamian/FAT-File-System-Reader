@@ -179,6 +179,4 @@ DIR_T *dir_open(VOLUME_T *pvolume, const char *dir_path);
 int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry);
 int dir_close(DIR_T *pdir);
 
-CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster);
-
 #endif //FILE_READER_H
