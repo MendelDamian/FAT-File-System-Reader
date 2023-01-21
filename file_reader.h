@@ -142,7 +142,7 @@ typedef struct dir_t
 
 typedef struct file_t
 {
-    DIR_T *parent_dir;
+    DIR_T *dir;
     DIR_ENTRY_T entry;
     CLUSTERS_CHAIN_T *clusters_chain;
     int32_t position;
