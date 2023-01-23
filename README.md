@@ -17,6 +17,7 @@ The FAT reader supports reading subdirectories and long file name entries. It in
 
 ## To do
 - Add support for FAT32 file systems.
+- Check if fat table is valid.
 
 ## Usage
 

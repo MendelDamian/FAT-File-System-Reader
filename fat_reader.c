@@ -1,7 +1,6 @@
 #include "fat_reader.h"
 
 #include <stdlib.h>
-#include <errno.h>
 #include <string.h>
 
 #define FAT12_END_VALUE 0xFF8
