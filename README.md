@@ -1,4 +1,4 @@
-# File Allocation Table (FAT) Reader
+# File Allocation Table (FAT) File System Reader
 
 A custom FAT file system image reader project developed for the "Operating Systems" classes to consolidate knowledge of file systems and system programming.
 The FAT reader supports reading subdirectories and long file name entries. It includes a variety of structures and functions to access the internal information of the file system with ease.
