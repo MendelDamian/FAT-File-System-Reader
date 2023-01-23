@@ -29,32 +29,30 @@ int main(void)
     DISK_T* disk = disk_open_from_file("fat16_volume.img");
     if (disk == NULL)
     {
-        puts("You need to provide a valid FAT16 volume image file.");
+        puts("You need to provide a valid FAT image file.");
         return 1;
     }
 
     VOLUME_T* volume = fat_open(disk, 0);
     if (volume == NULL)
     {
-        puts("The provided image file is not a valid FAT16 volume.");
+        disk_close(disk);
+        puts("The provided image file is not a valid FAT volume.");
         return 1;
     }
 
     FILE_T* file = file_open(volume, "/home/user/notes.txt");
     if (file == NULL)
     {
+        fat_close(volume);
+        disk_close(disk);
         puts("The provided file does not exist.");
         return 1;
     }
 
-    char buffer[1024];
-    size_t bytes_read = file_read(buffer, 1, 1024, file);
-    if (errno != 0)
-    {
-        puts("An error occurred while reading the file.");
-        return 1;
-    }
-
+    char buffer[1000] = {0};
+    size_t bytes_read = file_read(buffer, 1, 999, file);
+    
     printf("Read %zu bytes from the file.\n", bytes_read);
     printf("File contents:\n%s\n", buffer);
 
