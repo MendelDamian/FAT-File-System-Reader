@@ -38,7 +38,7 @@ int main(void)
     {
         disk_close(disk);
         puts("The provided image file is not a valid FAT volume.");
-        return 1;
+        return 2;
     }
 
     FILE_T* file = file_open(volume, "/home/user/notes.txt");
@@ -47,7 +47,7 @@ int main(void)
         fat_close(volume);
         disk_close(disk);
         puts("The provided file does not exist.");
-        return 1;
+        return 3;
     }
 
     char buffer[1000] = {0};
