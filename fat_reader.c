@@ -3,8 +3,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define BOOTSECTOR_SIGNATURE 0xAA55
+
 #define FAT12_END_VALUE 0xFF8
 #define FAT16_END_VALUE 0xFFF8
+
+#define READ_ONLY_ATTR 0x01
+#define HIDDEN_ATTR 0x02
+#define SYSTEM_ATTR 0x04
+#define VOLUME_LABEL_ATTR 0x08
+#define DIRECTORY_ATTR 0x10
+#define ARCHIVE_ATTR 0x20
+
+#define LFN_ATTR 0x0F
+#define DELETED_ENTRY 0xE5
+#define EMPTY_ENTRY 0x00
 
 CLUSTERS_CHAIN_T *get_clusters_chain(VOLUME_T *pvolume, uint16_t first_cluster);
 
@@ -128,7 +141,7 @@ VOLUME_T *fat_open(DISK_T *pdisk, uint32_t first_sector)
     }
 
     BOOTSECTOR_T *bs = &volume->bs;
-    if (bs->signature != 0xAA55)
+    if (bs->signature != BOOTSECTOR_SIGNATURE)
     {
         errno = EINVAL;
         free(volume);
@@ -630,18 +643,18 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
         return result;
     }
 
-    if ((uint8_t)entry_data.filename[0] == 0x00)
+    if ((uint8_t)entry_data.filename[0] == EMPTY_ENTRY)
     {
         return 1;
     }
 
-    if ((uint8_t)entry_data.filename[0] == 0xe5)
+    if ((uint8_t)entry_data.filename[0] == DELETED_ENTRY)
     {
         return dir_read(pdir, pentry);
     }
 
     // Check if 8.3 entry or LFN
-    if ((entry_data.attributes & 0x0F) == 0x0F)
+    if ((entry_data.attributes & LFN_ATTR) == LFN_ATTR)
     {
         // LFN
         pentry->has_long_name = true;
@@ -673,7 +686,7 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
                 return result;
             }
 
-        } while ((entry_data.attributes & 0x0F) == 0x0F);
+        } while ((entry_data.attributes & LFN_ATTR) == LFN_ATTR);
     }
 
     // 8.3 entry
@@ -700,12 +713,12 @@ int dir_read(DIR_T *pdir, DIR_ENTRY_T *pentry)
     }
 
     pentry->size = entry_data.file_size;
-    pentry->is_readonly = entry_data.attributes & 0x01;
-    pentry->is_hidden = entry_data.attributes & 0x02;
-    pentry->is_system = entry_data.attributes & 0x04;
-    pentry->is_volume_label = entry_data.attributes & 0x08;
-    pentry->is_directory = entry_data.attributes & 0x10;
-    pentry->is_archived = entry_data.attributes & 0x20;
+    pentry->is_readonly = entry_data.attributes & READ_ONLY_ATTR;
+    pentry->is_hidden = entry_data.attributes & HIDDEN_ATTR;
+    pentry->is_system = entry_data.attributes & SYSTEM_ATTR;
+    pentry->is_volume_label = entry_data.attributes & VOLUME_LABEL_ATTR;
+    pentry->is_directory = entry_data.attributes & DIRECTORY_ATTR;
+    pentry->is_archived = entry_data.attributes & ARCHIVE_ATTR;
     pentry->creation_date = entry_data.creation_date;
     pentry->creation_time = entry_data.creation_time;
     pentry->last_access_date = entry_data.last_access_date;
