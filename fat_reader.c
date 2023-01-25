@@ -234,6 +234,8 @@ FILE_T *file_open(VOLUME_T *pvolume, const char *file_name)
         return NULL;
     }
 
+    file->volume = pvolume;
+
     char *name = get_filename(file_name);
     strcpy(file->entry.name, name);
 
@@ -251,8 +253,6 @@ FILE_T *file_open(VOLUME_T *pvolume, const char *file_name)
         free(file);
         return NULL;
     }
-
-    file->dir = dir;
 
     dir->current_entry = 0;
     while (dir_read(dir, &file->entry) == 0)
@@ -294,11 +294,6 @@ int file_close(FILE_T *stream)
         return -1;
     }
 
-    // Since root directory belongs to the volume, we don't free it.
-    if (stream->dir && stream->dir != stream->dir->volume->root_dir)
-    {
-        dir_close(stream->dir);
-    }
     free(stream->clusters_chain);
     free(stream);
     return 0;
@@ -317,8 +312,8 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
         return 0;
     }
 
-    uint32_t cluster_size = stream->dir->volume->cluster_size;
-    int32_t sectors_per_cluster = (int32_t)stream->dir->volume->bs.sectors_per_cluster;
+    uint32_t cluster_size = stream->volume->cluster_size;
+    int32_t sectors_per_cluster = (int32_t)stream->volume->bs.sectors_per_cluster;
 
     void *buffer = malloc(cluster_size);
     if (buffer == NULL)
@@ -332,15 +327,15 @@ size_t file_read(void *ptr, size_t size, size_t nmemb, FILE_T *stream)
     while (bytes_read < size * nmemb && stream->position < (int32_t)stream->entry.size)
     {
         uint16_t current_cluster = stream->clusters_chain->clusters[stream->position /
-                                                                    stream->dir->volume->cluster_size];
+                                                                    stream->volume->cluster_size];
         if (current_cluster == 0)
         {
             break;
         }
 
-        int32_t sector = get_cluster_first_sector(stream->dir->volume, current_cluster);
+        int32_t sector = get_cluster_first_sector(stream->volume, current_cluster);
 
-        if (disk_read(stream->dir->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
+        if (disk_read(stream->volume->disk, sector, buffer, sectors_per_cluster) != sectors_per_cluster)
         {
             errno = ERANGE;
             break;
