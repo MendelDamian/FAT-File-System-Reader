@@ -187,6 +187,39 @@ VOLUME_T *fat_open(DISK_T *pdisk, uint32_t first_sector)
         return NULL;
     }
 
+    // Check if fat tables are the same
+    void *fat_table = calloc(bs->table_size_16, bs->bytes_per_sector);
+    if (fat_table == NULL)
+    {
+        free(volume->fat_table);
+        free(volume);
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    for (int i = 1; i < bs->table_count; i++)
+    {
+        result = disk_read(pdisk, bs->reserved_sector_count + (i * bs->table_size_16), fat_table, bs->table_size_16);
+        if (result != bs->table_size_16)
+        {
+            free(fat_table);
+            free(volume->fat_table);
+            free(volume);
+            errno = EINVAL;
+            return NULL;
+        }
+
+        if (memcmp(volume->fat_table, fat_table, bs->table_size_16 * bs->bytes_per_sector) != 0)
+        {
+            free(fat_table);
+            free(volume->fat_table);
+            free(volume);
+            errno = EINVAL;
+            return NULL;
+        }
+    }
+    free(fat_table);
+
     volume->root_dir_sectors = ((bs->root_entry_count * 32) + (bs->bytes_per_sector - 1)) / bs->bytes_per_sector;
     volume->first_data_sector = bs->reserved_sector_count + (bs->table_count * bs->table_size_16) + (int32_t)volume->root_dir_sectors;
     volume->first_root_dir_sector = volume->first_data_sector - (int32_t)volume->root_dir_sectors;
